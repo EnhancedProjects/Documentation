@@ -128,7 +128,12 @@ const config = {
 						],
 					},
 				],
-				copyright: `<img src="/img/logo_tekst.png" width="50%" alt="Logo"><br>Copyright © 2024 - ${new Date().getFullYear()} Project Enhanced founded by KPG-TB.<br>Built with Docusaurus.`,
+				logo: {
+					alt: "ProjectEnhanced Logo",
+					src: "img/logo_tekst.png",
+					width: "50%",
+				},
+				copyright: `Copyright © 2024 - ${new Date().getFullYear()} Project Enhanced founded by KPG-TB.<br>Built with Docusaurus.`,
 			},
 			prism: {
 				theme: prismThemes.github,
