@@ -140,6 +140,16 @@ const config = {
 				darkTheme: prismThemes.dracula,
 				additionalLanguages: ["java", "lua", "gradle"],
 			},
+			colorMode: {
+				defaultMode: "dark",
+			},
+			announcementBar: {
+				id: "work_in_progress",
+				content: "Work in progress...",
+				backgroundColor: "#d36959",
+				textColor: "#fff",
+				isCloseable: false,
+			},
 		}),
 }
 
