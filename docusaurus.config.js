@@ -63,7 +63,6 @@ const config = {
 	themeConfig:
 		/** @type {import('@docusaurus/preset-classic').ThemeConfig} */
 		({
-			// Replace with your project's social card
 			image: "img/social.png",
 			navbar: {
 				title: "ProjectEnhanced",
@@ -87,14 +86,18 @@ const config = {
 				],
 			},
 			footer: {
-				style: "dark",
+				style: "light",
 				links: [
 					{
-						title: "Docs",
+						title: "Developers",
 						items: [
 							{
 								label: "Documentation",
 								to: "/docs",
+							},
+							{
+								label: "JavaDocs",
+								hreft: "https://javadocs.projectenhanced.dev",
 							},
 						],
 					},
@@ -125,7 +128,7 @@ const config = {
 						],
 					},
 				],
-				copyright: `Copyright © 2024 - ${new Date().getFullYear()} Project Enhanced by KPG-TB.<br>Built with Docusaurus.`,
+				copyright: `<img src="/img/logo_tekst.png" width="50%" alt="Logo"><br>Copyright © 2024 - ${new Date().getFullYear()} Project Enhanced founded by KPG-TB.<br>Built with Docusaurus.`,
 			},
 			prism: {
 				theme: prismThemes.github,
