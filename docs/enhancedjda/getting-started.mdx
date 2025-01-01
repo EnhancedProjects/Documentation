@@ -1,0 +1,196 @@
+---
+
+sidebar_position: 1
+
+---
+# Getting Started
+
+**EnhancedJDA** is an **advanced** library that **enhances** the [**Java Discord API**](https://github.com/discord-jda/JDA) for creating powerful **Discord bots**. It **simplifies** development with built-in tools for command parsing, event handling, **database** & **config** management and advanced features like **slash commands** and message components.
+
+With **intuitive** syntax and **ready-to-use** templates, EnhancedJDA **reduces** complexity and enhances productivity. Whether you're building a **simple** bot or a **complex** application, EnhancedJDA makes Discord bot development in Java **effortless** and **efficient**.
+
+## Adding EnhancedJDA to your project
+
+:::info
+EnhancedJDA requires at least JDK 17
+:::
+
+import Tabs from "@theme/Tabs"
+
+import TabItem from "@theme/TabItem"
+
+<Tabs>
+
+<TabItem value="gradle" label="Gradle" default>
+
+```gradle title="build.gradle"
+
+repositories {
+
+mavenCentral()
+
+}
+
+dependencies {
+
+implementation 'dev.projectenhanced:EnhancedJDA:{VERSION}'
+
+}
+
+```
+
+</TabItem>
+
+<TabItem value="maven" label="Maven">
+
+```xml title="pom.xml"
+
+<dependency>
+
+<groupId>dev.projectenhanced</groupId>
+
+<artifactId>EnhancedJDA</artifactId>
+
+<version>{VERSION}</version>
+
+</dependency>
+
+```
+
+</TabItem>
+
+</Tabs>
+
+<details>
+<summary>Suggested plugin - **Lombok**</summary>
+
+<Tabs>
+
+<TabItem value="gradle" label="Gradle" default>
+
+```gradle title="build.gradle"
+
+plugins {
+
+id "io.freefair.lombok" version "8.11"
+
+}
+
+```
+
+</TabItem>
+
+<TabItem value="maven" label="Maven">
+
+```xml title="pom.xml"
+
+<dependencies>
+
+<dependency>
+
+<groupId>org.projectlombok</groupId>
+
+<artifactId>lombok</artifactId>
+
+<version>1.18.36</version>
+
+<scope>provided</scope>
+
+</dependency>
+
+</dependencies>
+
+```
+
+</TabItem>
+
+</Tabs>
+
+</details>
+
+:::danger
+Due to the implementation of some systems, you can’t test your bot by running it using your IDE. Instead of this, you need to build your bot and run it.
+
+<details>
+<summary>Example gradle automation</summary>
+
+```gradle title="build.gradle"
+
+tasks.register("buildAndRun") {
+
+dependsOn("shadowJar")
+
+doLast {
+
+javaexec {
+
+classpath = files(shadowJar.archiveFile.get().asFile)
+
+}
+
+}
+
+}
+
+```
+
+</details>
+:::
+
+## Project Template
+
+To start developing your bot, extend your main class using `EnhancedBot` class and call `runBot()` in main method.
+
+````java
+public class Main extends EnhancedBot {
+    public static void main(String[] args) throws ReflectiveOperationException {
+        runBot(Main.class);
+    }
+}
+````
+
+:::info
+Starting the bot for the first time will generate `.env` file in the work directory. You need to configure it before using the bot.
+
+````
+ENV=<DEV / PRODUCTION>
+TOKEN=<DISCORD BOT TOKEN>
+DATABASE=<SQLITE or MYSQL Connection URL>
+````
+:::
+
+Extending `EnhancedBot` class gives you some methods that you can override.
+
+````java
+@Override
+public void preBuild(DefaultShardManagerBuilder builder) {
+    // This method will be executed just before building ShardManager
+    // You can modify builder by i.e. changing bot status and activity:
+    // builder.setStatus(OnlineStatus.DO_NOT_DISTURB);
+    // builder.setActivity(Activity.customStatus("uD83DuDEE0uFE0F Working on EnhancedJDA"));
+}
+
+@Override
+public void postBuild(ShardManager shardManager) {
+    // This method will be executed just after building ShardManager
+}
+
+@Override
+public void onReady(ReadyEvent event) {
+    // This method will be executed when bot is ready. I.e you can log it
+    // EnhancedLogger.getLogger().info("Logged as {}", event.getJDA().getSelfUser().getAsTag());
+}
+
+@Override
+public void onShutdown() {
+    // This method will be executed just before exiting bot
+}
+````
+
+### Logs
+
+All logs will be saved in `logs` folder inside the work directory. To log something, use `EnhancedLogger` utility class. Example from the ⁣`onReady` method:
+
+````java
+ EnhancedLogger.getLogger().info("Logged as {}", event.getJDA().getSelfUser().getAsTag());
+````
