@@ -97,7 +97,7 @@ const config = {
 							},
 							{
 								label: "JavaDocs",
-								hreft: "https://javadocs.projectenhanced.dev",
+								href: "https://javadocs.projectenhanced.dev",
 							},
 						],
 					},
