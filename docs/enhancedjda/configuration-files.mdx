@@ -8,8 +8,47 @@ import TabItem from '@theme/TabItem';
 
 # Configuration files
 
-## .yaml
+EnhancedJDA adds built-in support for `.yml` and `.env` files.
+
+## .yml
+
+YAML files are handled by Jackson. In general, you can create objects and then convert them into `.yml` files. You can use `EnhancedConfig` utility to read and write easily.
+
+_Example:_
+
+````java title="Configuration object"
+@Getter @Setter
+@AllArgsConstructor @NoArgsConstructor
+public class CustomSettings {
+    private String name;
+    private String surname;
+}
+````
+
+````java title="Another class"
+// Writing data to ./config/settings.yml
+EnhancedConfig.write("settings", new CustomSettings("Mark", "White"));
+// Reading data from ./config/setting.yml
+EnhancedConfig.read("settings", CustomSettings.class);
+````
 
 ## .env
 
-Already developed, but docs will be soon…
+ENV files are handled by `dotenv-java`. To read data from `.env`, you should use method `getDotenv().get()` from class, which extends `EnhancedBot`.
+
+_Example:_
+
+````java
+public class Main extends EnhancedBot {
+
+    public static void main(String[] args) throws ReflectiveOperationException {
+        runBot(Main.class);
+    }
+
+    @Override
+    public void onReady(ReadyEvent event) {
+        // Read ENV variable "SOMETHING"
+        String something = getDotenv().get("SOMETHING");
+    }
+}
+````

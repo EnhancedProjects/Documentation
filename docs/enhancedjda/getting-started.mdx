@@ -70,29 +70,73 @@ plugins {
 
 </details>
 
-:::danger
-Due to the implementation of some systems, you can’t test your bot by running it using your IDE. Instead of this, you need to build your bot and run it.
+### Example build configuration
 
-<details>
-<summary>Example gradle automation</summary>
-
+<Tabs>
+<TabItem value='gradle' label='Gradle'>
 ````gradle title="build.gradle"
-tasks.register("buildAndRun") {
-  dependsOn("shadowJar")
-  doLast {
-    javaexec {
-      classpath = files(shadowJar.archiveFile.get().asFile)
-    }
-  }
+plugins {
+    id "com.github.johnrengelman.shadow" version "8.1.1"
+}
+shadowJar {
+    archiveFileName = project.name + "-" + project.version + ".jar"
+    manifest {
+        attributes(
+                "Main-Class": "[PATH_TO_MAIN_CLASS]"
+        )
+    }
 }
 ````
+</TabItem>
 
-</details>
+<TabItem value='maven' label='Maven'>
+````xml title="pom.xml"
+<properties>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+</properties>
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-jar-plugin</artifactId>
+            <version>3.4.2</version>
+            <configuration>
+                <archive>
+                    <manifest>
+                        <mainClass>[PATH_TO_MAIN_CLASS]</mainClass>
+                    </manifest>
+                </archive>
+            </configuration>
+        </plugin>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-shade-plugin</artifactId>
+            <version>3.6.0</version>
+            <executions>
+                <execution>
+                    <phase>package</phase>
+                    <goals>
+                        <goal>shade</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+````
+</TabItem>
+</Tabs>
+
+:::note
+Don’t forget to replace [PATH_TO_MAIN_CLASS]
 :::
 
 ## Project Template
 
-To start developing your bot, extend your main class using `EnhancedBot` class and call `runBot()` in main method.
+To start developing your bot, extend your main class using `EnhancedBot` class and call `runBot()` in the main method.
 
 ````java
 public class Main extends EnhancedBot {
@@ -102,7 +146,7 @@ public class Main extends EnhancedBot {
 }
 ````
 
-:::info
+:::note
 Starting the bot for the first time will generate `.env` file in the work directory. You need to configure it before using the bot.
 
 ```` title=".env"
@@ -142,7 +186,9 @@ public void onShutdown() {
 
 ### Logs
 
-All logs will be saved in `logs` folder inside the work directory. To log something, use `EnhancedLogger` utility class. Example from the ⁣`onReady` method:
+All logs will be saved in `logs` folder inside the work directory. To log something, use `EnhancedLogger` utility class.
+
+_Example from the ⁣_`onReady` _method:_
 
 ````java
  EnhancedLogger.getLogger().info("Logged as {}", event.getJDA().getSelfUser().getAsTag());
