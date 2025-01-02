@@ -1,9 +1,12 @@
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+# Getting Started
+
 ---
 
 sidebar_position: 1
 
 ---
-# Getting Started
 
 **EnhancedJDA** is an **advanced** library that **enhances** the [**Java Discord API**](https://github.com/discord-jda/JDA) for creating powerful **Discord bots**. It **simplifies** development with built-in tools for command parsing, event handling, **database** & **config** management and advanced features like **slash commands** and message components.
 
@@ -11,99 +14,58 @@ With **intuitive** syntax and **ready-to-use** templates, EnhancedJDA **reduces*
 
 ## Adding EnhancedJDA to your project
 
-:::info
+:::note
 EnhancedJDA requires at least JDK 17
 :::
 
-import Tabs from "@theme/Tabs"
-
-import TabItem from "@theme/TabItem"
-
 <Tabs>
-
-<TabItem value="gradle" label="Gradle" default>
-
-```gradle title="build.gradle"
-
+<TabItem value='gradle' label='Gradle'>
+````gradle title="build.gradle"
 repositories {
-
-mavenCentral()
-
+  mavenCentral()
 }
 
 dependencies {
-
-implementation 'dev.projectenhanced:EnhancedJDA:{VERSION}'
-
+  implementation 'dev.projectenhanced:EnhancedJDA:{VERSION}'
 }
-
-```
-
+````
 </TabItem>
 
-<TabItem value="maven" label="Maven">
-
-```xml title="pom.xml"
-
+<TabItem value='maven' label='Maven'>
+````xml title="pom.xml"
 <dependency>
-
-<groupId>dev.projectenhanced</groupId>
-
-<artifactId>EnhancedJDA</artifactId>
-
-<version>{VERSION}</version>
-
+  <groupId>dev.projectenhanced</groupId>
+  <artifactId>EnhancedJDA</artifactId>
+  <version>{VERSION}</version>
 </dependency>
-
-```
-
+````
 </TabItem>
-
 </Tabs>
 
 <details>
 <summary>Suggested plugin - **Lombok**</summary>
 
 <Tabs>
-
-<TabItem value="gradle" label="Gradle" default>
-
-```gradle title="build.gradle"
-
+<TabItem value='gradle' label='Gradle'>
+````gradle title="build.gradle"
 plugins {
-
-id "io.freefair.lombok" version "8.11"
-
+  id "io.freefair.lombok" version "8.11"
 }
-
-```
-
+````
 </TabItem>
 
-<TabItem value="maven" label="Maven">
-
-```xml title="pom.xml"
-
+<TabItem value='maven' label='Maven'>
+````xml title="pom.xml"
 <dependencies>
-
-<dependency>
-
-<groupId>org.projectlombok</groupId>
-
-<artifactId>lombok</artifactId>
-
-<version>1.18.36</version>
-
-<scope>provided</scope>
-
-</dependency>
-
+  <dependency>
+    <groupId>org.projectlombok</groupId>
+    <artifactId>lombok</artifactId>
+    <version>1.18.36</version>
+    <scope>provided</scope>
+  </dependency>
 </dependencies>
-
-```
-
+````
 </TabItem>
-
 </Tabs>
 
 </details>
@@ -114,25 +76,16 @@ Due to the implementation of some systems, you can’t test your bot by running 
 <details>
 <summary>Example gradle automation</summary>
 
-```gradle title="build.gradle"
-
+````gradle title="build.gradle"
 tasks.register("buildAndRun") {
-
-dependsOn("shadowJar")
-
-doLast {
-
-javaexec {
-
-classpath = files(shadowJar.archiveFile.get().asFile)
-
+  dependsOn("shadowJar")
+  doLast {
+    javaexec {
+      classpath = files(shadowJar.archiveFile.get().asFile)
+    }
+  }
 }
-
-}
-
-}
-
-```
+````
 
 </details>
 :::
@@ -152,7 +105,7 @@ public class Main extends EnhancedBot {
 :::info
 Starting the bot for the first time will generate `.env` file in the work directory. You need to configure it before using the bot.
 
-````
+```` title=".env"
 ENV=<DEV / PRODUCTION>
 TOKEN=<DISCORD BOT TOKEN>
 DATABASE=<SQLITE or MYSQL Connection URL>
