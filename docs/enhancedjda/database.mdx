@@ -8,4 +8,183 @@ import TabItem from '@theme/TabItem';
 
 # Database
 
-Already developed, but docs will be soon…
+EnhancedJDA manages database using [ORMLite](https://ormlite.com/). It’s really easy to use, useful, and lightweight ORM. Our library supports MySQL and SQLite.
+
+## Configuring database
+
+You can configure the database in `.env`.
+
+### SQLite
+
+```` title=".env"
+DATABASE=SQLITE
+````
+
+### MySQL
+
+```` title=".env"
+DATABASE=jdbc:mysql://{login}:{password}@{host}:{port}/{database}
+````
+
+## Creating tables
+
+To create new tables, you should create a package (or multiple packages) with tables. Table is represented by class with:
+
+- `@DatabaseTable` annotation
+- Empty constructor
+- Fields with `@DatabaseField` annotation
+- Getters and Setters for fields
+- One id field with annotation `@DatabaseField(generatedId = true)` for `autoincrement` , or `@DatabaseField(id = true)` for manual set ids.
+
+To register tables, use the ⁣`PackageMapping` annotation in the main class.
+
+````java title="dev.projectenhanced.enhancedjda.controller.PackageMapping "
+public @interface PackageMapping {
+    String[] commands() default {};
+    String[] contexts() default {};
+    String[] listeners() default {};
+    String[] tables() default {};
+    String[] persisters() default {};
+}
+````
+
+_Example setup:_
+
+```` title="Project structure"
+.
+├── myTables/
+│   ├── ExampleTable.class
+│   ├── AnotherTable.class
+│   └── ...
+└── Main.class
+````
+
+````java title="myTables.ExampleTable"
+@DatabaseTable(tableName = "example_users")
+@NoArgsConstructor @AllArgsConstructor
+@Getter @Setter
+public class ExampleTable {
+    @DatabaseField(generatedId = true)
+    private Integer id;
+    @DatabaseField
+    private String name;
+    @DatabaseField
+    private String surname;
+}
+````
+
+````java title="Main"
+@PackageMapping(
+        tables = {"myTables"},
+)
+public class Main extends EnhancedBot {
+  // ...
+}
+````
+
+## Database operations
+
+To perform queries on the database, you need to get `Dao<T,Z>` from `DataController`. You can get that controller from class, which extends `EnhancedBot`. Dao you can get using `getDao(Class<T> daoSource, Class<Z> idType)` method.
+
+_Example operations:_
+
+````java
+public class Something {
+    private EnhancedBot bot;
+    public Something(EnhancedBot bot) {
+        this.bot = bot;
+    }
+    public void operations() {
+        DataController controller = this.bot.getDataController();
+        Dao<ExampleTable, Integer> dao = controller.getDao(ExampleTable.class,Integer.class);
+
+        // Adding data to database
+        ExampleTable data = new ExampleTable(null,"Mark", "White");
+        dao.create(data);
+        EnhancedLogger.getLogger().info("Created user with id: {}", data.getId());
+        
+        // Getting data from database
+        ExampleTable foundData =  dao.queryForId(1);
+        // OR
+        ExampleTable foundData2 = dao.queryForEq("name", "Mark");
+        
+        // Updating data in database
+        foundData2.setName("Luke");
+        dao.update(foundData);
+        
+        // Deleting data from database
+        dao.delete(foundData2);
+        // OR
+        dao.deleteById(1);
+    }
+}
+````
+
+:::note
+Of course, ORMLite adds a lot of other options to operate on the database. These are only examples. For more, read their documentation.
+:::
+
+## Persisters
+
+You can also create a custom persister to convert Java objects to SQL. To create a new persister, you should create a package (or multiple packages) with persisters. You can read more about creating persisters in the ORMLite documentation.
+
+:::tip
+EnhancedJDA provides default persisters for `List`,`Map` and `Guild`. You can also use custom persister, which converts objects using `Gson` by using annotation `@DatabaseField(persisterClass = GsonPersister.class)`
+:::
+
+To register persisters, use the ⁣`PackageMapping` annotation in the main class.
+
+````java title="dev.projectenhanced.enhancedjda.controller.PackageMapping "
+public @interface PackageMapping {
+    String[] commands() default {};
+    String[] contexts() default {};
+    String[] listeners() default {};
+    String[] tables() default {};
+    String[] persisters() default {};
+}
+````
+
+_Example setup:_
+
+```` title="Project structure"
+.
+├── myPersisters/
+│   ├── GuildPersister.class
+│   ├── AnotherPersister.class
+│   └── ...
+└── Main.class
+````
+
+````java title="myTables.ExampleTable"
+public class GuildPersister extends StringType { // Persister which will be converted to String
+    private final EnhancedBot bot;
+
+    // You can create empty constructor or constructor with EnhancedBot param
+    public GuildPersister(EnhancedBot bot) {
+        // Set type to String and allowd classes to Guild
+        super(SqlType.STRING, new Class[]{Guild.class});
+        this.bot = bot;
+    }
+
+    @Override
+    public Object javaToSqlArg(FieldType fieldType, Object javaObject) throws SQLException {
+        // Convert java object (Guild) to sql (String)
+        return ((Guild)javaObject).getId();
+    }
+
+    @Override
+    public Object sqlArgToJava(FieldType fieldType, Object sqlArg, int columnPos) throws SQLException {
+         // Convert sql (String) to java object (Guild)
+         return bot.getShardManager().getGuildById((String) sqlArg);
+    }
+}
+````
+
+````java title="Main"
+@PackageMapping(
+        persisters = {"myPersisters"},
+)
+public class Main extends EnhancedBot {
+  // ...
+}
+````
