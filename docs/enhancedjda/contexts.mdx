@@ -8,4 +8,50 @@ import TabItem from '@theme/TabItem';
 
 # Contexts
 
-Already developed, but docs will be soon…
+EnhancedJDA implements an option to quickly register & implement all contexts from certain packages. You should create a package (or multiple packages) with all contexts. They should extend `EnhancedContext<T>` class (where `T` is a `User` or `Message`). To register them, use the ⁣`PackageMapping` annotation in the main class.
+
+````java title="dev.projectenhanced.enhancedjda.controller.PackageMapping "
+public @interface PackageMapping {
+    String[] commands() default {};
+    String[] contexts() default {};
+    String[] listeners() default {};
+    String[] tables() default {};
+    String[] persisters() default {};
+}
+````
+
+_Example setup:_
+
+```` title="Project structure"
+.
+├── myContexts/
+│   ├── ExampleContext.class
+│   ├── AnotherContext.class
+│   └── ...
+└── Main.class
+````
+
+````java title="myContexts.ExampleContext"
+public class ExampleContext extends EnhancedContext<User> {
+    private final EnhancedBot bot;
+
+    public ExampleContext(EnhancedBot bot) {
+        super(bot);
+        this.bot = bot;
+    }
+
+    @Override
+    protected void execute(GenericContextInteractionEvent<User> event) {
+        event.reply("Avatar: " + event.getTarget().getEffectiveAvatarUrl()).queue();
+    }
+}
+````
+
+````java title="Main"
+@PackageMapping(
+        contexts = {"myContexts"},
+)
+public class Main extends EnhancedBot {
+  // ...
+}
+````

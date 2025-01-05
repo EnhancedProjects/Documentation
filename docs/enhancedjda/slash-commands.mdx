@@ -8,4 +8,276 @@ import TabItem from '@theme/TabItem';
 
 # Slash Commands
 
-Already developed, but docs will be soon…
+EnhancedJDA adds a really modern and easy-to-use system for creating slash commands. To create slash commands, you should create a package (or multiple packages) with all commands. They should extend `EnhancedCommand`class. To register it, use the ⁣`PackageMapping` annotation in the main class. When `ENV` is set to `DEV` then commands will be registered as guild commands; when `ENV` is set to `PRODUCTION` then they will be registered as global commands.
+
+````java title="dev.projectenhanced.enhancedjda.controller.PackageMapping "
+public @interface PackageMapping {
+    String[] commands() default {};
+    String[] contexts() default {};
+    String[] listeners() default {};
+    String[] tables() default {};
+    String[] persisters() default {};
+}
+````
+
+_Example setup:_
+
+```` title="Project structure"
+.
+├── myCommands/
+│   ├── PingCommand.class
+│   ├── AnotherCommand.class
+│   └── ...
+└── Main.class
+````
+
+````java title="myCommands.PingCommand"
+public class PingCommand extends EnhancedCommand {
+    private final EnhancedBot bot;
+
+    public PingCommand(EnhancedBot bot) {
+        super(bot);
+        this.bot = bot;
+    }
+
+    // Explained in the next sections...
+}
+````
+
+````java title="Main"
+@PackageMapping(
+        commands = {"myCommands"},
+)
+public class Main extends EnhancedBot {
+  // ...
+}
+````
+
+## Creating commands
+
+Each command/subcommand is represented by its own method with `SlashCommandInteractionEvent` param. **The name of command is a name of class without a ⁣**`Command` **suffix,** so i.e. `PingCommand` creates `/ping` command. **The name of subcommand is a name of method.** On Discord, you can create commands that execute something or multiple subcommands that execute something. If you want to create one main command, then add `@MainCommand` annotation. If you want to create multiple subcommands, then don’t use that annotation.
+
+_Example of main command (it will create_ `/ping` command_):_
+
+````java
+public class PingCommand extends EnhancedCommand {
+    private final EnhancedBot bot;
+
+    public PingCommand(EnhancedBot bot) {
+        super(bot);
+        this.bot = bot;
+    }
+
+    @MainCommand
+    public void execute(SlashCommandInteractionEvent event) {
+        event.reply("Pong!").queue();
+    }
+}
+````
+
+_Example of subcommands (_`/ping a` _and_ `/ping b`_):_
+
+````java
+public class PingCommand extends EnhancedCommand {
+    private final EnhancedBot bot;
+
+    public PingCommand(EnhancedBot bot) {
+        super(bot);
+        this.bot = bot;
+    }
+
+    public void a(SlashCommandInteractionEvent event) {
+        event.reply("Pong A!").queue();
+    }
+
+    public void b(SlashCommandInteractionEvent event) {
+        event.reply("Pong B!").queue();
+    }
+}
+````
+
+You can also create subcommand groups by creating inner classes. **The name of a group is a name of an inner class.**
+
+_Example of subcommand groups & subcommand (_`/ping a`_,_ `/ping something a`_,_ `/ping something b`_):_
+
+````java
+public class PingCommand extends EnhancedCommand {
+    private final EnhancedBot bot;
+
+    public PingCommand(EnhancedBot bot) {
+        super(bot);
+        this.bot = bot;
+    }
+
+    public void a(SlashCommandInteractionEvent event) {
+        event.reply("Pong A!").queue();
+    }
+
+    public class Something {
+        public void a(SlashCommandInteractionEvent event) {
+            event.reply("Pong Something A!").queue();
+        }
+
+        public void b(SlashCommandInteractionEvent event) {
+            event.reply("Pong Something B!").queue();
+        }
+    }
+}
+````
+
+### Command options
+
+You can add options to your commands by using `@CommandOption` annotation (you can add multiple annotations of this type) on the method.
+
+````java title="dev.projectenhanced.enhancedjda.controller.command.annotation.CommandOption"
+public @interface CommandOption {
+    OptionType type();
+    String name();
+    String description();
+    boolean required() default false;
+    boolean autoComplete() default false;
+}
+````
+
+_Example of using options (_`/ping <user>`_):_
+
+````java
+public class PingCommand extends EnhancedCommand {
+    private final EnhancedBot bot;
+
+    public PingCommand(EnhancedBot bot) {
+        super(bot);
+        this.bot = bot;
+    }
+
+    @MainCommand
+    @CommandOption(type=OptionType.USER, name="user", description = "User to play with", required = true)
+    public void execute(SlashCommandInteractionEvent event) {
+        User user = event.getOption("user").getAsUser();
+        event.reply("Pong "+ user.getName() +"!").queue();
+    }
+}
+````
+
+### Autocomplete
+
+You can create an autocompleter by overriding method `autoComplete(CommandAutoCompleteInteractionEvent event, String option, String value)`
+
+### Components & Modals
+
+You can easily create interactive components and modals using: `EnhancedButton`, `EnhancedStringSelect`, `EnhancedEntitySelect` and `EnhancedModal`. They work in the same way. There are 2 ways to create component / modal: temporary and permanent.
+
+#### Creating temporary component
+
+To create a temporary component, use `(EnhancedBot bot, Function<String,T> configure, Consumer<Z> action)` and pass `id` param in the configure method. A created object you should directly pass into the `addActionRow` method of `event.reply()`.
+
+_Template example of creating temp component:_
+
+````java
+public void a(SlashCommandInteractionEvent event) {
+    event.reply("Pong A!")
+        .addActionRow(
+            new EnhancedButton(this.bot,
+                (id) -> Button.primary(id, "Click me").withEmoji(Emoji.fromUnicode("uD83EuDD7A")), // Creating button
+                (e) -> {
+                    e.reply("Yup!").setEphemeral(true).queue(); // Response
+                }
+            ).getComponent()
+        ).queue();
+}
+````
+
+#### Creating permanent component
+
+Permanent components work even after restarting the bot. They need to have their own unique ID. To create it, you should create it using `(EnhancedBot bot, String permanentId, Function<String,T> configure, Consumer<Z> action)` constructor and register it into `ComponentController` i.e. in the command constructor. Later, you can get it using `ComponentController#getComponent` and add it into ActionRow.
+
+_Template example of creating perm component:_
+
+````java
+public class PingCommand extends EnhancedCommand {
+    private final EnhancedBot bot;
+
+    public PingCommand(EnhancedBot bot) {
+        super(bot);
+        this.bot = bot;
+        bot.getComponentController().registerComponents(
+            new EnhancedButton(this.bot,
+                "report_stuff",
+                (id) -> Button.danger(id, "Report something"), // Configure button
+                (e) -> {
+                    e.reply("Works!").queue(); // Result
+                }
+            )
+        );
+    }
+
+    @MainCommand
+    public void execute(SlashCommandInteractionEvent event) {
+        event.reply("Pong!")
+            .addActionRow(bot.getComponentController().getComponent("report_stuff"))
+            .queue();
+    }
+}
+````
+
+#### Examples of all components
+
+````java title="EnhancedButton"
+new EnhancedButton(this.bot,
+    (id) -> Button.primary(id, "Click me")), // Configure JDA Button
+    (e) -> { // Action when clicked
+        e.reply("Yup!").setEphemeral(true).queue(); 
+    }
+)
+````
+
+````java title="EnhancedStringSelect"
+new EnhancedStringSelect(this.bot,
+    (id) -> StringSelectMenu.create(id)
+                .addOption("Something", "sth")
+                .addOption("Nothing", "nope")
+                .addOption("Maybe", ":/")
+                .setRequiredRange(1,2)
+                .build(), // Configure JDA StringSelectMenu
+    (e) -> { // Action when confirmed
+         e.reply("You selected: " + String.join(", ", e.getValues())).setEphemeral(true).queue();
+    }
+)
+````
+
+````java title="EnhancedEntitySelect"
+new EnhancedEntitySelect(this.bot,
+    (id) -> EntitySelectMenu.create(id,EntitySelectMenu.SelectTarget.CHANNEL)
+                .setRequiredRange(1,3)
+                .build(), // Configure JDA EnhancedEntitySelect
+    (e) -> { // Action when confirmed
+        e.reply("You selected: " + 
+                String.join(", ",
+                        e.getMentions().getChannels()
+                                .stream().map(GuildChannel::getName).toList()
+                )
+        ).setEphemeral(true).queue();
+    }
+)
+````
+
+````java title="EnhancedModal"
+new EnhancedModal(this.bot,
+        (id) -> Modal.create(id, "Report something")
+                     .addActionRow(TextInput.create("subject", "Report subject", TextInputStyle.SHORT).build())
+                     .addActionRow( TextInput.create("description", "Report description", TextInputStyle.PARAGRAPH).build())
+                     .build(),
+        (e) -> {
+            e.reply("# " + modalEvent.getValue("subject").getAsString() + "n*" + modalEvent.getValue("description").getAsString() + "*").queue();
+         }
+)
+````
+
+### Another configuration options
+
+- Setting command / subcommand description - use `@CommandDescription` annotation on class / method
+- Setting command permissions - use `@CommandPermission` annotation on class
+- Setting command as guild only - use `@GuildOnlyCommand` annotation on class
+- Setting command only for certain guilds - use `@GuildCommand` annotation on class (and set guild ids as value)
+- Setting command as NSFW cmd - use `@NsfwCommand` annotation on class
+- Setting method as not command - use `@Utility` annotation on method
