@@ -1,0 +1,159 @@
+---
+
+sidebar_position: 8
+
+---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Deployment
+
+You can deploy your bot in various ways. EnhancedJDA made small utilities for bot deployment.
+
+## Windows Installer (.msi)
+
+You can create a Windows⁣`.msi` installer for your bot. It will install the bot and the required JRE, so the user won’t need to install it manually.
+
+**Requirements**:
+
+- Java Development Kit (at least 14, but not lower than used by bot)
+- [WiX Toolset](https://github.com/wixtoolset/wix3/releases)
+
+**To create an installer, you need to:**
+
+- Build your bot to `.jar` file
+- [Download script](https://github.com/KPGTB/EnhancedJDA/blob/master/deployment/windows_installer.bat)
+- Run script and provide required information
+
+### Installation and configuration
+
+To install the bot, run `.msi` installer and follow the instructions. You can configure the bot in the location selected during installation.
+
+## Linux Installer (.deb)
+
+You can create a Linux ⁣`.deb` installer for your bot. As in Windows, it will install the bot and the required JRE.
+
+**Requirements**:
+
+- Java Development Kit (at least 14, but not lower than used by bot)
+
+**To create an installer, you need to:**
+
+- Build your bot to `.jar` file
+- [Download script](https://github.com/KPGTB/EnhancedJDA/blob/master/deployment/linux_installer.sh)
+- Run script and provide required information
+
+### Installation and configuration
+
+1.  Run `dpkg -i <installer_name>.deb`
+
+2. If you don't have some dependencies, then run `apt -f install` and run command from the first step again
+
+Package will be installed in `/opt/<formatted-application-name>`. There will also be the configuration files. You can run a bot using `/opt/<formatted-application-name>/bin/<application-name>`.
+
+`formatted-application-name` _is a lower case name with_ `-` _instead of spaces_
+
+### Running bot in the background
+
+You can also run the bot in the background.
+
+1. Create service file `nano /etc/systemd/system/<application-name>.service`
+
+```` title="/etc/systemd/system/<application-name>.service"
+[Unit]
+Description=Discord bot
+
+[Service]
+User=root
+Group=root
+Restart=always
+WorkingDirectory=/opt/<formatted-application-name>
+ExecStart=/opt/<formatted-application-name>/bin/<application-name>
+StartLimitInterval=180
+StartLimitBurst=30
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+````
+
+:::note
+Don’t forget to change `WorkingDirectory` and `ExecStart`
+:::
+
+2. Enable service `systemctl enable <application-name>`
+
+3. Start service `systemctl start <application-name>`
+
+To check logs use `journalctl -fu <application-name>`
+
+## Pterodactyl
+
+You can run bot on pterodactyl using [Generic Java Egg](https://github.com/pelican-eggs/eggs/blob/master/generic/java/egg-java.json) and bot `.jar`
+
+## Docker
+
+### Using Dockerfile, JAR file and docker compose
+
+In this method, you need to have a ⁣`.jar` file in the same directory as `Dockerfile` and `docker-compose.yml`
+
+```` title="Dockerfile"
+FROM azul/zulu-openjdk-alpine:17-latest
+
+RUN mkdir /app
+COPY *.jar /app/bot.jar
+WORKDIR /app
+
+ENTRYPOINT ["java", "-jar", "bot.jar"]
+````
+
+```` title="docker-compose.yml"
+version: '3.8'
+services:
+  bot:
+    container_name: discord-bot
+    build: .
+    restart: unless-stopped
+    environment:
+      - ENV=DEV
+      - TOKEN=YOUR_TOKEN
+      - DATABASE=SQLITE
+    volumes:
+      - '/var/log/discord-bot:/app/logs'
+      - '/opt/discord-bot/config:/app/config'
+      - '/opt/discord-bot/database.db:/app/database.db'
+````
+
+## Building image, exporting it and running it later
+
+You can also build an image, save it, and load it later to run using i.e. docker compose.
+
+**To build & save image:**
+
+1.  Place `.jar` file and `Dockerfile` in the same directory
+2.  Run `docker build -t <bot-name>:<version> .`
+3.  Save image to file `docker save -o <bot-name>.tar <bot-name>:<version>`
+4.  _(optional)_ Remove image `docker rmi <bot-name>:<version>`
+
+**To load & run image:**
+
+1.  Load image using `.tar` created before `docker load -i <bot-name>.tar`
+2.  Run using i.e. docker compose
+
+```` title="docker-compose.yml"
+version: '3.8'
+services:
+  bot:
+    container_name: discord-bot
+    image: <bot-name>:<version>
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      - ENV=DEV
+      - TOKEN=YOUR_TOKEN
+      - DATABASE=SQLITE
+    volumes:
+      - '/var/log/discord-bot:/app/logs'
+      - '/opt/discord-bot/config:/app/config'
+      - '/opt/discord-bot/database.db:/app/database.db'
+````
