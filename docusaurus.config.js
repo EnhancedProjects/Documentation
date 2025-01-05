@@ -143,13 +143,6 @@ const config = {
 			colorMode: {
 				defaultMode: "dark",
 			},
-			announcementBar: {
-				id: "work_in_progress",
-				content: "Work in progress...",
-				backgroundColor: "#d36959",
-				textColor: "#fff",
-				isCloseable: false,
-			},
 		}),
 }
 
