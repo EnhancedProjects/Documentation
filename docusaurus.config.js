@@ -130,7 +130,7 @@ const config = {
 				],
 				logo: {
 					alt: "Enhanced Projects Logo",
-					src: "img/logo_tekst.png",
+					src: "img/logo_text.png",
 					width: "50%",
 				},
 				copyright: `<br>Copyright © 2024 - ${new Date().getFullYear()} Enhanced Projects founded by KPG-TB.<br>Built with Docusaurus.`,
