@@ -28,7 +28,7 @@ jobs:
         run: npm run build
 
       - name: Deploy to production
-        uses: genietim/ftp-action@releases/v4
+        uses: genietim/ftp-action@releases/v4.0.1
         with:
             host: ${{ secrets.FTP_HOST }}
             username: ${{ secrets.FTP_USERNAME }}
