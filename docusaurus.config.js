@@ -10,10 +10,10 @@ import {themes as prismThemes} from "prism-react-renderer"
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-	title: "ProjectEnhanced",
-	tagline: "Enhance popular libraries",
+	title: "EnhancedProjects",
+	tagline: "Let's enhance it!",
 	favicon: "img/favicon.ico",
-	url: "https://projectenhanced.dev",
+	url: "https://enhancedprojects.com",
 	baseUrl: "/",
 
 	onBrokenLinks: "warn",
@@ -65,9 +65,9 @@ const config = {
 		({
 			image: "img/social.png",
 			navbar: {
-				title: "ProjectEnhanced",
+				title: "EnhancedProjects",
 				logo: {
-					alt: "Project Enhanced Logo",
+					alt: "Enhanced Projects Logo",
 					src: "img/logo.png",
 				},
 				items: [
@@ -79,7 +79,7 @@ const config = {
 					},
 					{to: "/blog", label: "Blog", position: "left"},
 					{
-						href: "https://github.com/KPGTB",
+						href: "https://github.com/EnhancedProjects",
 						label: "GitHub",
 						position: "right",
 					},
@@ -96,8 +96,8 @@ const config = {
 								to: "/docs",
 							},
 							{
-								label: "JavaDocs",
-								href: "https://javadocs.projectenhanced.dev",
+								label: "Source Code",
+								href: "https://github.com/EnhancedProjects",
 							},
 						],
 					},
@@ -118,7 +118,7 @@ const config = {
 								to: "/blog",
 							},
 							{
-								label: "GitHub",
+								label: "Founder's GitHub",
 								href: "https://github.com/KPGTB",
 							},
 							{
@@ -129,11 +129,11 @@ const config = {
 					},
 				],
 				logo: {
-					alt: "ProjectEnhanced Logo",
+					alt: "Enhanced Projects Logo",
 					src: "img/logo_tekst.png",
 					width: "50%",
 				},
-				copyright: `<br>Copyright © 2024 - ${new Date().getFullYear()} Project Enhanced founded by KPG-TB.<br>Built with Docusaurus.`,
+				copyright: `<br>Copyright © 2024 - ${new Date().getFullYear()} Enhanced Projects founded by KPG-TB.<br>Built with Docusaurus.`,
 			},
 			prism: {
 				theme: prismThemes.github,
