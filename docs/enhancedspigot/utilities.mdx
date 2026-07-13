@@ -1,0 +1,160 @@
+---
+
+sidebar_position: 8
+
+---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Utilities
+
+The **Utils** module is a large collection of small, mostly-static helper classes. Everything here is available regardless of which other modules you enable (Utils is always pulled in). This page covers the most commonly used utilities beyond the [dependency injection container](dependency-injection.mdx) already covered on its own page.
+
+## Item building — `EnhancedItemBuilder`
+
+A fluent, cross-version `ItemStack` builder, gating advanced features (trims, attributes, custom model data, new potion effects…) by the running server version automatically.
+
+````java
+ItemStack item = EnhancedItemBuilder.of(Material.DIAMOND_SWORD)
+        .displayName("<gold>Excalibur")
+        .lore("<gray>A legendary blade")
+        .enchant(Enchantment.SHARPNESS, 5)
+        .unbreakable()
+        .flag(ItemFlag.HIDE_ENCHANTS)
+        .model(1001)
+        .build();
+````
+
+Other notable builder methods: `amount(int)`, `damage(int)`, `glow()` (fake-enchant glow without showing an enchant), `head(String data)` (player head from a name, `b64:<data>`, or `url:<data>`), `color(Color)` (leather armor), `armorTrim(TrimMaterial, TrimPattern)`, `attribute(Attribute, AttributeModifier)`, `potion(...)`.
+
+### `EnhancedItemBuilder.Serializer`
+
+`EnhancedItemBuilder.Serializer` (de)serializes an `ItemStack` to/from a plain, human-editable `Map<String,Object>` — this is exactly what the [Configs](configuration-files.mdx) module's built-in `ItemStack` serializer uses to store items in YAML — or to/from Base64 (`serializeToBase64`/`deserializeFromBase64`) for exact, byte-for-byte NBT round-tripping.
+
+Every key is optional except `material` — a key is only written when the item actually has that property set (e.g. `damage` is omitted for an undamaged item). All keys use kebab-case:
+
+| Key | Type | Notes |
+|---|---|---|
+| `material` | string | The only required key — Bukkit `Material` name. If it's `AIR`, every other key is omitted. |
+| `amount` | int | Stack size. |
+| `name` | string | Display name (MiniMessage/legacy string), omitted if the item has no custom display name. |
+| `lore` | list of strings | Each entry is one lore line. |
+| `model` | int | Custom model data — only written on versions supporting it. |
+| `damage` | int | Durability damage — only written when non-zero. |
+| `unbreakable` | boolean | Only written when `true`. |
+| `enchantments` | list of strings | Each entry is `"<enchant-key> <level>"`, e.g. `"sharpness 5"`. |
+| `glow` | boolean | Only written when `true` — a fake enchant used purely for the glint, hidden from `enchantments`/tooltip. |
+| `item-flags` | list of strings | `ItemFlag` names, e.g. `HIDE_ENCHANTS`. |
+| `head` | string | Only present on player heads: a player name, `b64:<texture data>`, or `url:<skin url>`. |
+| `armor-color` | string | Only present on leather armor: `"<red> <green> <blue>"`. |
+| `armor-trim` | string | Only present on trimmed armor (if the server version supports trims): `"<trim material> <trim pattern>"`. |
+| `attributes` | list of strings | Only present when the item has attribute modifiers (if supported): each entry encodes attribute, modifier UUID, name, amount, operation, and optional equipment slot. |
+| `potion` | string | Only present on potion items: the potion type name (with a `LONG_`/`STRONG_` prefix on older versions, or the base potion type name directly on newer ones). |
+
+_Example of the resulting YAML for a fully-configured item:_
+
+````yaml
+material: DIAMOND_SWORD
+amount: 1
+name: <gold>Excalibur
+lore:
+  - <gray>A legendary blade
+enchantments:
+  - sharpness 5
+unbreakable: true
+item-flags:
+  - HIDE_ENCHANTS
+model: 1001
+````
+
+## Scheduling — `SchedulerUtil`
+
+A Folia/Paper/Bukkit-agnostic scheduler wrapper — automatically detects Folia and routes through its region scheduler, otherwise falls back to the regular Bukkit scheduler.
+
+````java
+SchedulerUtil.runTask(plugin, () -> locale.getNeverJoined().to(sender));
+SchedulerUtil.runTaskLater(plugin, this::refresh, 20L);
+SchedulerUtil.Task task = SchedulerUtil.runTaskTimer(plugin, this::tick, 0L, 20L);
+task.cancel();
+SchedulerUtil.runTaskAsynchronously(plugin, this::loadFromDisk);
+````
+
+## Durations — `EnhancedTime`
+
+A duration value type, parsed from strings like `"5m"`, `"1h30m"`, or built from raw milliseconds:
+
+````java
+EnhancedTime cooldown = EnhancedTime.from(entity.getCooldownEnd() - System.currentTimeMillis());
+long millis = EnhancedTime.from("5m");
+String formatted = cooldown.as("<days:d ><hours:h ><minutes:m ><seconds:s>", "0s");
+````
+
+It doubles as a command argument type out of the box (via a built-in `IStringConverter`), and as an [`EnhancedConfig`](configuration-files.mdx) field type (serialized as its original string form).
+
+## Countdowns — `EnhancedTimer`
+
+A configurable, player-facing countdown supporting chat, action bar, boss bar or title output:
+
+````java
+EnhancedTimer timer = new EnhancedTimer(plugin, EnhancedTimer.TimerType.BOSSBAR, TimerInterval.EVERY, 30);
+timer.addViewer(player);
+timer.setEndAction(t -> player.sendMessage("Time's up!"));
+timer.start();
+````
+
+`TimerInterval` provides ready-made "notify at these remaining seconds" presets (e.g. `TIMER_30_10_EVERY`).
+
+## Persistent data — `PDCUtil`
+
+A thin, type-safe wrapper over Bukkit's `PersistentDataContainer` that transparently handles `ItemStack`s (auto un/repacking `ItemMeta`) in addition to blocks/entities:
+
+````java
+PDCUtil.setData(itemStack, plugin, "custom_item_id", 1);
+boolean isCustom = PDCUtil.hasData(itemStack, plugin, "custom_item_id", Integer.class);
+int value = PDCUtil.getDataOr(player, plugin, "some_key", -1);
+````
+
+## Leaderboards
+
+`LeaderboardData<V>` describes one leaderboard's data source and message templates; `LeaderboardController` (registered via `EnhancedPlugin.enableLeaderboards(...)`) manages a set of them and auto-refreshes on a timer.
+
+````java title="Overriding leaderboards() in your EnhancedPlugin subclass"
+@Override
+public Map<String, LeaderboardData<?>> leaderboards() {
+    return Map.of("kills", new LeaderboardData<>(
+            "kills",
+            locale.getLeaderboardHeader().asStrings(),
+            locale.getLeaderboardEntry().asString(),
+            locale.getLeaderboardFooter().asStrings(),
+            () -> CompletableFuture.supplyAsync(userDataService::topByKills),
+            Comparator.reverseOrder(),
+            (offlinePlayer) -> new Pair<>(offlinePlayer.getName(), userDataService.getKills(offlinePlayer)),
+            NumberUtil::showNumber
+    ));
+}
+````
+
+````java title="load() in your EnhancedPlugin subclass"
+this.leaderboardController = this.enableLeaderboards(this.settings.getLeaderboardRefreshRate());
+````
+
+`LeaderboardController.handlePlaceholder(...)` is designed to back a PlaceholderAPI expansion (`leaderboard_<key>_<placeholder>`).
+
+## Other notable utilities
+
+| Class | Purpose |
+|---|---|
+| `PermissionUtil.getValueFromPermission(player, prefix, default, converter, comparator)` | Resolves the "best" value from permissions like `plugin.limit.<n>` (e.g. per-rank limits). |
+| `NumberUtil.showNumber(double)` | Formats a double with up to 2 decimal places. |
+| `HologramUtil` | Spawns/updates/removes invisible-marker `ArmorStand` text holograms. |
+| `SemanticVersion` | `MAJOR.MINOR.PATCH` version comparisons; `SemanticVersion.getMinecraftVersion()` reads the running server version. |
+| `TryCatchUtil.tryOrDefault(...)` / `tryRun(...)` | Wrap risky calls (including ones throwing checked exceptions) with a default exception handler that logs via the plugin logger. |
+| `ConditionUtil.passCondition(String)` | Evaluates a math/boolean expression string (via [EvalEx](https://github.com/ezylang/EvalEx), an **optional** dependency) — useful for config-driven requirement expressions. |
+| `EnhancedRequest` / `EnhancedResponse` | A minimal `@Builder`-style HTTP client with sync/async (`CompletableFuture`) sending. |
+| `GithubUpdater` / `SpigotUpdater` | Ready-to-use `IUpdater` implementations for `EnhancedPlugin.useUpdater(...)`. |
+| `ItemUtil` | `giveItemToPlayer(...)` (drops overflow at their feet), `getItemName(...)`, `compareWithoutPDC(...)`, inventory-space checks. |
+| `Pair<F,S>` | Simple immutable value holder. |
+
+:::note
+`ConditionUtil` and `EnhancedItemBuilder`'s skull texture support (`head(...)`) rely on optional dependencies (`EvalEx`, Mojang's `authlib`) that degrade gracefully — via reflection — if not present on the classpath at runtime.
+:::

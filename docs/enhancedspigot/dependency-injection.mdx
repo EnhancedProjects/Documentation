@@ -1,0 +1,159 @@
+---
+
+sidebar_position: 3
+
+---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Dependency Injection
+
+EnhancedSpigot doesn't use annotation-driven package scanning to wire services together — instead, every plugin gets a single, manually-populated **dependency container**: `IDependencyProvider` (contract, in **Commons**) implemented by `DependencyProvider` (in **Utils**). `EnhancedPlugin` creates one per plugin instance and exposes it as `this.dependencyProvider`.
+
+## `IDependencyProvider`
+
+````java title="com.enhancedprojects.enhancedspigot.common.IDependencyProvider"
+public interface IDependencyProvider extends IClosable, IReloadable {
+    <T> T register(T dependency, Class<?>... classes);
+    <T> T register(T dependency);
+    boolean isRegistered(Class<?> clazz);
+    <T> T provide(Class<T> clazz);
+}
+````
+
+- `register(dependency)` stores an object under its own runtime class.
+- `register(dependency, classes...)` stores it under one or more explicit lookup classes (useful for registering an implementation under an interface type, e.g. a Vault `Economy`).
+- `provide(Class<T>)` retrieves a previously registered instance.
+- Because `IDependencyProvider` also extends `IClosable`/`IReloadable`, calling `close()`/`reload()` on the provider cascades to every registered dependency that implements those interfaces.
+
+`EnhancedPlugin` self-registers under three keys as soon as it's created, so any dependency can always resolve the owning plugin:
+
+````java
+provider.provide(JavaPlugin.class);
+provider.provide(EnhancedPlugin.class);
+provider.provide(ExamplePlugin.class); // your concrete subclass
+````
+
+## Lifecycle interfaces
+
+````java title="com.enhancedprojects.enhancedspigot.common.stereotype.lifecycle"
+public interface IStartable { void start(); }
+public interface IReloadable { void reload(); }
+public interface IClosable {
+    void close();
+    default int closeOrder() { return 0; }
+}
+````
+
+`closeOrder()` controls shutdown ordering — the provider sorts every `IClosable` dependency by this value before calling `close()` on each of them, so e.g. a database connection can be given a higher `closeOrder()` than the services that use it.
+
+## Stereotypes
+
+Plugin code is organized using two semantic base classes, both extending the abstract `Component`:
+
+````java title="com.enhancedprojects.enhancedspigot.common.stereotype"
+public abstract class Component implements IStartable, IReloadable, IClosable {
+    protected final JavaPlugin plugin;
+    protected final IDependencyProvider dependencyProvider;
+
+    protected Component(JavaPlugin plugin) { ... }               // dependencyProvider is null
+    protected Component(IDependencyProvider dependencyProvider) { ... } // plugin resolved via provider.provide(JavaPlugin.class)
+
+    // start()/reload()/close() default to no-ops — override as needed
+}
+
+public abstract class Controller extends Component {}
+public abstract class Service extends Component {}
+```` 
+
+There's no functional difference between `Controller` and `Service` — they're purely semantic markers to help you organize code: `Controller` for the layer exposed to commands/menus/listeners, `Service` for lower-level operations (data access, business logic). Every built-in EnhancedSpigot controller (`CommandController`, `DatabaseController`, `ItemController`, `LeaderboardController`...) extends `Controller`.
+
+_Typical controller, resolving its own dependencies from the provider:_
+
+````java
+public class ExampleController extends Controller {
+    private final Locale locale;
+    private final Settings settings;
+    private final Economy economy;
+
+    public ExampleController(IDependencyProvider dependencyProvider) {
+        super(dependencyProvider);
+        this.locale = dependencyProvider.provide(Locale.class);
+        this.settings = dependencyProvider.provide(Settings.class);
+        this.economy = dependencyProvider.provide(Economy.class);
+    }
+}
+````
+
+````java title="Registering it in load()"
+this.dependencyProvider.register(new ExampleController(this.dependencyProvider)).start();
+````
+
+## Listeners
+
+Bukkit event listeners get the same DI treatment via `EnhancedListener` (Utils module):
+
+````java title="com.enhancedprojects.enhancedspigot.util.listener.EnhancedListener"
+public abstract class EnhancedListener implements Listener {
+    protected final JavaPlugin plugin;
+    protected final DependencyProvider provider;
+
+    public EnhancedListener(JavaPlugin plugin) { ... }
+    public EnhancedListener(DependencyProvider provider) { ... }
+}
+````
+
+````java
+public class ExampleListener extends EnhancedListener {
+    private final ExampleController controller;
+
+    public ExampleListener(DependencyProvider provider) {
+        super(provider);
+        this.controller = provider.provide(ExampleController.class);
+    }
+
+    @EventHandler
+    public void onInteract(PlayerInteractEvent event) { ... }
+}
+````
+
+Register every listener in a package at once with `EnhancedPlugin.registerListeners(String listenerPackage)`, or call `Bukkit.getPluginManager().registerEvents(...)` yourself.
+
+## Command argument converters & filters
+
+Two more Commons contracts back the [Commands module](commands.mdx)'s argument parsing — documented in full there, but summarized here since they live in Commons:
+
+````java title="com.enhancedprojects.enhancedspigot.common.converter.IStringConverter"
+public interface IStringConverter<T> {
+    String asString(T object, JavaPlugin plugin);
+    T fromString(String string, JavaPlugin plugin);
+    boolean canConvert(String string, JavaPlugin plugin);
+    List<String> complete(String arg, CommandSender sender, JavaPlugin plugin);
+}
+````
+
+````java title="com.enhancedprojects.enhancedspigot.common.filter.IFilter"
+public interface IFilter<T> {
+    boolean filter(T obj, JavaPlugin plugin, CommandSender source);
+    List<String> notPassMessage(T obj, JavaPlugin plugin, CommandSender source);
+    int weight(); // priority used to pick the failing filter whose message wins
+}
+````
+
+`StringConverterRegistry.getInstance()` is the global registry of converters (pre-populated for primitives, `String`, `Player`, `OfflinePlayer`, `World` and enums) — register your own with `registerConverter(Class, IStringConverter)`/`registerConverters(...)`.
+
+## Annotations
+
+These annotations (all in `com.enhancedprojects.enhancedspigot.common.annotation`) decorate command classes/methods/parameters — consumed by the Commands module, but defined in Commons since they're shared plumbing:
+
+| Annotation | Placement | Purpose |
+|---|---|---|
+| `@Name(String value)` | Type, Method, Parameter | Overrides the auto-derived name of a command/subcommand/parameter. |
+| `@Description(String value)` | Type, Method | Human-readable description used in help output & `commands.yml`. |
+| `@Permission(String value)` | Type, Method | Declares an extra Bukkit permission node required to run the command/subcommand. |
+| `@WithoutPermission` | Type, Method | Disables the automatic permission check. |
+| `@Ignore` | Type, Method, Field | Skips the member during reflective scanning. |
+| `@Converter(Class<? extends IStringConverter<?>>)` | Parameter | Overrides the default converter for one argument. |
+| `@Filter(orFilters, andFilters)` | Parameter | Attaches validation filters to an argument. |
+
+See [Commands](commands.mdx) for how these come together in practice.

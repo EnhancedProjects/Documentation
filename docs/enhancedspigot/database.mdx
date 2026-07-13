@@ -1,0 +1,269 @@
+---
+
+sidebar_position: 7
+
+---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Database
+
+EnhancedSpigot manages the database using [ORMLite](https://ormlite.com/), pooled through [HikariCP](https://github.com/brettwooldridge/HikariCP). It supports **SQLite**, **MySQL** and **PostgreSQL**, and adds a repository + in-memory cache layer on top so plugin code rarely touches ORMLite's `Dao` directly.
+
+## Configuring the connection
+
+Connection settings are a plain [config](configuration-files.mdx) POJO, `DatabaseOptions`, typically embedded as a field on your own `Settings` class:
+
+````java
+private DatabaseOptions database = new DatabaseOptions();
+````
+
+which serializes to something like:
+
+````yaml
+database:
+  type: SQLITE
+  threads: 2
+  credentials:
+    host: localhost
+    port: 3306
+    username: root
+    password: ''
+    database: minecraft
+  hikari-options:
+    enabled: true
+    pool-name: my-plugin-pool
+    maximum-pool-size: 10
+    minimum-idle: 2
+    idle-timeout: 60000
+    max-lifetime: 1800000
+    connection-timeout: 30000
+    use-ssl: false
+````
+
+`type` accepts `SQLITE`, `MYSQL` or `POSTGRESQL`. For SQLite, `credentials` is ignored and a `database.db` file is created inside the plugin's data folder instead.
+
+## Enabling the database
+
+````java title="load() in your EnhancedPlugin subclass"
+DatabaseController databaseController = this.enableDatabase(settings.getDatabase());
+this.enableMigrations(1, Map.of());
+
+databaseController.registerEntities(UserEntity.class.getPackageName());
+databaseController.registerEntities(UserBalanceEntity.class.getPackageName());
+````
+
+`enableDatabase(DatabaseOptions)` opens the connection (Hikari-pooled if `hikari-options.enabled`), registers the built-in ORMLite persisters (`ItemStack`, `List`, `Location`, `Map`, `OfflinePlayer`, `World`), and returns the `DatabaseController`. `registerEntities(packageName)` scans that package for `@DatabaseTable`-annotated classes and creates any missing tables.
+
+## Defining entities
+
+Entities are plain ORMLite classes, extending `AbstractDataEntity<K>` (or `AbstractRealtimeChild<K>` for child rows managed by a [`RealtimeDataRepository`](#realtimedatarepository--foreign-collections), see below):
+
+````java title="UserEntity.java — parent entity"
+@DatabaseTable(tableName = "example_users")
+public class UserEntity extends AbstractDataEntity<UUID> implements IForeignMapping {
+    @DatabaseField(id = true)
+    private UUID id;
+
+    @ForeignCollectionField
+    private ForeignCollection<UserBalanceEntity> foreignBalances = null;
+
+    private final ConcurrentMap<String, UserBalanceEntity> balances = new ConcurrentHashMap<>();
+
+    @Override
+    public List<ForeignMapper<?>> getForeignMappers() {
+        return List.of(new ForeignMapper<>(this.foreignBalances, this.balances, UserBalanceEntity::getCurrency));
+    }
+}
+````
+
+````java title="UserBalanceEntity.java — a child/foreign row"
+@DatabaseTable(tableName = "example_user_balances")
+public class UserBalanceEntity extends AbstractRealtimeChild<Integer> {
+    @DatabaseField(generatedId = true)
+    private Integer id;
+
+    @DatabaseField
+    private String currency;
+
+    @DatabaseField
+    private BigDecimal amount;
+
+    @DatabaseField(foreign = true, foreignAutoRefresh = true, index = true, columnName = "user_uuid",
+        columnDefinition = "VARCHAR(48) NOT NULL, CONSTRAINT fk_user_balance FOREIGN KEY (user_uuid) " +
+                "REFERENCES example_users(id) ON DELETE CASCADE")
+    private UserEntity user;
+}
+````
+
+- `@DatabaseTable(tableName = "...")` — required on every entity class.
+- `@DatabaseField(...)` — exactly one field per entity must be marked `id = true`, `generatedId = true`, or use `generatedIdSequence`.
+- `@ForeignCollectionField` — declares a lazily-loaded ORMLite `ForeignCollection<Child>`; pair it with `IForeignMapping`/`ForeignMapper` (below) to expose it as a normal keyed `Map` to the rest of your code instead of iterating the collection.
+- `columnDefinition` lets you hand-write the raw SQL column type, e.g. to add a `FOREIGN KEY ... ON DELETE CASCADE` constraint.
+
+`ForeignMapper<T>` bridges a `ForeignCollection<T>` and an in-memory `Map<String, T>` keyed by a business-key extractor function, so parent entities can look up children by key instead of iterating the collection.
+
+## Repositories
+
+Rather than calling `Dao` methods directly, wrap each entity type in a repository, owned by a `Service` subclass (`AbstractDataService`):
+
+````java title="UserDataService.java"
+public class UserDataService extends AbstractDataService<UUID, UserEntity> {
+    @Getter
+    private final RealtimeDataRepository<UUID, UserEntity> repository;
+
+    public UserDataService(IDependencyProvider dependencyProvider) {
+        super(dependencyProvider);
+        this.repository = (RealtimeDataRepository<UUID, UserEntity>) super.repository;
+    }
+
+    @Override
+    protected IDataStorage<UUID, UserEntity> initStorage() {
+        return new MemoryDataStorage<>();
+    }
+
+    @Override
+    protected IDataRepository<UUID, UserEntity> initRepository() {
+        return new RealtimeDataRepository<>(this.databaseController, this.storage, this.plugin, 10_000L, 60_000L,
+                PriorityMapUtil.userRealtimeCache()) {};
+    }
+
+    @Override
+    public void close() {
+        this.repository.saveAllPendingSync(); // flush debounced writes on plugin disable
+    }
+}
+````
+
+````java title="Registering the service"
+this.dataService = this.dependencyProvider.register(new UserDataService(this.dependencyProvider));
+this.dataService.start();
+````
+
+There are three repository implementations, each extending the previous one:
+
+| Class | Behavior |
+|---|---|
+| `DataRepository<K,V>` | Synchronous, cache-then-DAO reads/writes. |
+| `AsyncDataRepository<K,V>` | Every operation also has a `*Async` variant returning `CompletableFuture`, dispatched onto per-plugin read/write executor pools (SQLite gets a dedicated single write thread since it can't handle concurrent writers; MySQL/PostgreSQL share one pool). |
+| `RealtimeDataRepository<K,V>` | Adds a **debounced write-behind cache** for foreign/child collections — repeated small mutations (`markDirty()` on a child entity) are coalesced into fewer physical writes instead of hitting the database on every change. |
+
+Common operations (sync repository shown; every method also has an `Async` counterpart returning a `CompletableFuture` on `AsyncDataRepository`/`RealtimeDataRepository`):
+
+````java
+repository.get(key);                 // cache-or-load
+repository.load(key);                // force a DB read, bypassing cache
+repository.create(key, value);       // insert + cache
+repository.loadOrCreate(key, dflt);  // load if present, else create with the given default
+repository.modify(key, entity -> { ... }); // mutate + persist
+repository.save(key);
+repository.saveAndInvalidate(key);
+repository.remove(key);
+repository.removeIf(biPredicate);
+repository.exists(key);
+````
+
+:::note
+There's no explicit transaction/unit-of-work API — every repository call maps to one ORMLite operation. `RealtimeDataRepository`'s debounced queue batches many small mutations into fewer writes, but it isn't a SQL transaction.
+:::
+
+## `AsyncDataRepository`
+
+`AsyncDataRepository<K,V>` mirrors every `IDataRepository` method with an async counterpart returning `CompletableFuture`, dispatched onto the `DatabaseController`'s read/write `ExecutorService`s instead of blocking the calling (usually main server) thread:
+
+````java title="com.enhancedprojects.enhancedspigot.data.repository.iface.IAsyncDataRepository"
+CompletableFuture<V> getAsync(K key);
+CompletableFuture<V> loadAsync(K key);
+CompletableFuture<Collection<V>> loadAsyncAll();
+CompletableFuture<Void> modifyAsync(K key, Consumer<V> action);
+CompletableFuture<Void> modifyAsyncAll(Consumer<V> action);
+CompletableFuture<Void> saveAsync(K key);
+CompletableFuture<V> createAsync(K key, V value);
+CompletableFuture<V> loadOrCreateAsync(K key, V defaultValue);
+CompletableFuture<Void> removeAsync(K key);
+CompletableFuture<Boolean> existsAsync(K key);
+````
+
+The idiomatic pattern for "load-or-create, then mutate" logic (e.g. from a command handler) is to chain these futures rather than blocking:
+
+````java
+userDataService.getRepository().existsAsync(playerId).thenAccept(exists -> {
+    if (exists) {
+        userDataService.getRepository().modifyAsync(playerId, user -> {
+            // mutate the existing entity
+        });
+    } else {
+        userDataService.getRepository().createAsync(playerId, new UserEntity(playerId))
+                .thenAccept(user -> {
+                    // freshly-created entity is available here
+                });
+    }
+});
+````
+
+:::note
+Callbacks attached to these futures (`thenAccept`/`thenRun`/...) run on the repository's executor thread, **not** the main server thread. If your callback touches Bukkit API (spawning entities, sending messages, editing inventories…), hop back with [`SchedulerUtil.runTask(plugin, ...)`](utilities.mdx#scheduling--schedulerutil) before doing so.
+:::
+
+## `RealtimeDataRepository` & foreign collections
+
+`RealtimeDataRepository<K,V>` extends `AsyncDataRepository` and adds a **debounced write-behind cache** specifically for `@ForeignCollectionField` children (`AbstractRealtimeChild<K>` entities, like `UserBalanceEntity` above). Instead of writing to the database on every single mutation of a child row, changes are coalesced and flushed after a configurable delay:
+
+````java
+new RealtimeDataRepository<>(
+        databaseController,
+        storage,
+        plugin,
+        10_000L,   // changesWaitingTime — flush this long after the *last* change to a given row
+        60_000L,   // changesMaxWaitingTime — but never wait longer than this since the *first* change
+        PriorityMapUtil.userRealtimeCache()
+) {};
+````
+
+A loaded parent entity's `AbstractRealtimeChild` children automatically have their `repository`/parent/foreign-collection references wired up by the repository — your own code only ever calls three methods on the child entity itself, after mutating its fields directly:
+
+````java
+public void computeBalance(UserEntity user, String currency, DoubleUnaryOperator operator) {
+    UserBalanceEntity balance = getOrCreateBalance(user, currency);
+    balance.setAmount(BigDecimal.valueOf(operator.applyAsDouble(balance.getAmount().doubleValue())));
+    balance.markDirty();    // schedules a debounced save of just this row
+}
+
+public void addNewBalance(UserEntity user, UserBalanceEntity balance) {
+    // after adding `balance` to the parent's ForeignCollection/mapped Map:
+    balance.markCreated();  // inserts immediately (creation isn't debounced)
+}
+
+public void removeBalance(UserBalanceEntity balance) {
+    balance.markDeleted();  // removes immediately (deletion isn't debounced)
+}
+````
+
+- `markDirty()` — schedules (or reschedules) a debounced update; repeated calls within `changesWaitingTime` of each other keep pushing the save back, up to `changesMaxWaitingTime` total.
+- `markCreated()` / `markDeleted()` — applied immediately, since a missing/duplicate row would break the in-memory `ForeignMapper` view.
+- `repository.saveAllPendingSync()` — flushes every pending debounced change **synchronously**, across every key. Always call this from your `Service`'s `close()` override so nothing is lost when the plugin is disabled or the server stops.
+- `repository.saveAllPendingSync(key)` / `saveAllPending(key, priority)` — flush just one parent's pending changes, synchronously or asynchronously.
+
+:::tip
+Debouncing exists to avoid hammering the database when a value changes rapidly (e.g. incrementing a counter on every block break). Pick `changesWaitingTime` based on how "live" the data needs to be for other parts of your plugin (which still see the in-memory/cached value immediately) versus how much you want to reduce write volume.
+:::
+
+## Cache
+
+`IDataStorage<K,V>` is the pluggable cache contract; `MemoryDataStorage` (a `ConcurrentHashMap` wrapper, no eviction/TTL) is the only implementation shipped — it's a full read-through/write-through mirror of whichever entities the repository has touched, not an LRU. Every `AbstractDataService` subclass must provide one via `initStorage()`.
+
+## Migrations
+
+````java title="load() in your EnhancedPlugin subclass"
+this.enableMigrations(2, Map.of(
+        2, (plugin, controller) -> {
+            // migration logic run once, when upgrading from schema version 1 to 2
+        }
+));
+````
+
+`enableMigrations(currentVersion, migrations)` tracks the plugin's schema version in a shared `enhancedspigot_database_info` table (keyed by `EnhancedPlugin.getTag()`), running each registered migration function exactly once as the stored version catches up to `currentVersion`.
+
+:::tip
+`registerEntities(packageName)`'s table creation is idempotent — it silently ignores "table/column already exists" errors, so it's safe to call again after adding new entities in a future version without needing a migration.
+:::

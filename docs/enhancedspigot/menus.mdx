@@ -1,0 +1,176 @@
+---
+
+sidebar_position: 9
+
+---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Menus
+
+The Menus module builds config-driven, pageable inventory GUIs on top of [Configuration Files](configuration-files.mdx). There's no `MenuController`/registry — menus are plain Java objects, constructed and `.open()`ed directly from commands, listeners, or other menus.
+
+## Config-driven menus — `EnhancedConfigMenu`
+
+Most menus extend `EnhancedConfigMenu<T extends ConfigMenuSettings>`, which handles pagination and static-item rendering for you. You provide:
+
+1. A nested `Configuration extends EnhancedConfig` holding the menu's settings, itself referencing a `MenuSettings extends ConfigMenuSettings` implementation — this is what gets saved to (and reloadable from) a YAML file under `<dataFolder>/menus/`.
+2. `provideObjects()` — a `Map<String, List<Object>>` of the domain data to paginate, one list per "dynamic slot" key.
+3. `processObject()` — a `Map<String, Function<Object, MenuItem>>`, one renderer per key, turning a domain object into a clickable `MenuItem`.
+
+````java title="RewardsMenu.java (simplified)"
+public class RewardsMenu extends EnhancedConfigMenu<RewardsMenu.Configuration.MenuSettings> {
+    private final List<Reward> rewards;
+
+    public RewardsMenu(DependencyProvider provider, Player viewer, List<Reward> rewards) {
+        super(provider, viewer, provider.provide(Configuration.class).getMenuSettings());
+        this.rewards = rewards;
+    }
+
+    @Override
+    protected Map<String, List<Object>> provideObjects() {
+        return Map.of("rewards", List.copyOf(this.rewards));
+    }
+
+    @Override
+    protected Map<String, Function<Object, MenuItem>> processObject() {
+        return Map.of("rewards", raw -> {
+            Reward reward = (Reward) raw;
+            MenuItem item = new MenuItem(EnhancedItemBuilder.of(reward.getItem()).build());
+            item.setClickAction(() -> this.redeem(reward));
+            return item;
+        });
+    }
+
+    public static class Configuration extends EnhancedConfig {
+        private MenuSettings menuSettings = new MenuSettings();
+
+        public static class MenuSettings extends ConfigMenuSettings {
+            private String title = "Rewards";
+            private int rows = 3;
+            private String rewardsSlots = "0-17";
+            private Map<String, StaticItem> staticItems = Map.of(
+                    "18-26", new StaticItem(EnhancedItemBuilder.of(Material.GRAY_STAINED_GLASS_PANE).displayName(" ").build(), List.of())
+            );
+        }
+    }
+}
+````
+
+which maps to a YAML config like:
+
+````yaml title="menus/rewards.yml"
+title: Rewards
+rows: 3
+rewards-slots: 0-17
+static-items:
+  18-26:
+    item:
+      material: GRAY_STAINED_GLASS_PANE
+      name: ' '
+    actions: []
+````
+
+:::tip
+`MenuSettings` doesn't have to be a separate `static` class — it's common to nest it as a plain (non-static) inner class instead, so its methods can read the outer `Configuration` class's fields directly, with `@Ignore` (from [Commons](dependency-injection.mdx)) keeping the `menuSettings` instance itself out of the YAML:
+
+````java title="Alternative layout, single flat set of fields"
+@Getter @NoArgsConstructor
+public static class Configuration extends EnhancedConfig {
+    private String title = "Rewards";
+    private int rows = 1;
+    private String slots = "2-6";
+    private Map<String, StaticItem> staticItems = Map.of(
+            "0,8", new StaticItem(EnhancedItemBuilder.of(Material.GRAY_STAINED_GLASS_PANE).displayName(" ").build(), List.of())
+    );
+
+    @Ignore
+    private MenuSettings menuSettings = new MenuSettings();
+
+    public Configuration(JavaPlugin plugin) {
+        super(plugin, new File(plugin.getDataFolder(), "menus"), "rewards");
+    }
+
+    // non-static: reads the outer class's fields directly
+    public class MenuSettings extends ConfigMenuSettings {
+        protected String title() { return title; }
+        protected int rows() { return rows; }
+        public boolean blockClick() { return true; }
+        public Map<String, List<String>> dynamicSlots() { return Map.of("rewards", List.of(slots)); }
+        protected Map<String, StaticItem> staticItems() { return staticItems; }
+    }
+}
+````
+:::
+
+Field names are automatically kebab-cased in the YAML, exactly like regular [config classes](configuration-files.mdx), since `ConfigMenuSettings` is itself serialized by the Configs module — and, like any other config, only `Map<String, T>` (string-keyed) maps are supported.
+
+`provideObjects()`/`dynamicSlots()`/`processObject()` can all declare more than one key in the same menu — e.g. `Map.of("rewards", ..., "categories", ...)` — each key gets its own slot range and its own item renderer, and pages are generated until every key's list is exhausted.
+
+### Slot syntax
+
+Dynamic slots (returned from `dynamicSlots()`) and static item keys accept comma-separated lists and dash ranges: `"0-17"`, `"3,5,7"`, `"2, 6"`.
+
+### Static item actions
+
+Each `StaticItem` carries a list of action tokens, parsed by `MenuAction`:
+
+| Token | Effect |
+|---|---|
+| `[menu-previous]` / `[menu-next]` | Flips the page of every paginated container in the menu. |
+| `[menu-close]` | Closes the inventory for all viewers. |
+| `[player-command] <cmd>` | Dispatches `<cmd>` as the clicking player. |
+| `[console-command] <cmd>` | Dispatches `<cmd>` as console, with `<player>` substituted for the viewer's name. |
+| anything else | Looked up in the map returned by overriding `customStaticActions()` — e.g. `[accept]`, `[confirm]`, `[menu-back]`. |
+
+### Opening a menu
+
+````java
+new RewardsMenu(provider, player, rewards).open();
+````
+
+Chaining to another menu (e.g. from a click handler) is just constructing and opening the next one:
+
+````java
+menuItem.setClickAction(() -> new RewardsMenu(this.provider, this.viewer, this.rewards).open());
+````
+
+## Ready-made prompt menus
+
+Three built-in menus follow the same convention: they take a `lastMenu` reference and a response callback; if the player closes without responding, the callback fires with a "cancelled" value and `lastMenu` reopens automatically a few ticks later.
+
+| Menu | Purpose |
+|---|---|
+| `EnhancedConfirmMenu` | Yes/no confirmation. |
+| `EnhancedCountMenu` | Numeric input via increase/decrease buttons with configurable step/min/max. |
+| `EnhancedWriteMenu` | Free-text input via an anvil GUI ([AnvilGUI](https://github.com/WesJD/AnvilGUI), an **optional** dependency). |
+
+````java
+new EnhancedWriteMenu(plugin, settings.getNameMenu(), this, viewer, response -> {
+    if (response != null) rename(response);
+}).open();
+````
+
+## Lower-level building blocks
+
+If `EnhancedConfigMenu` doesn't fit your use case, you can build directly on `EnhancedMenu`:
+
+````java title="com.enhancedprojects.enhancedspigot.menu.EnhancedMenu"
+public abstract class EnhancedMenu {
+    public EnhancedMenu(String title, int rows, JavaPlugin plugin);      // rows: 1-6
+    public EnhancedMenu(String title, int rows, DependencyProvider provider);
+
+    public abstract void prepareGui();  // fill containers/items here
+    public void open(Player player);
+    public void addContainer(MenuContainer container);
+    public void update();               // re-renders every container's items
+    public void updateTitle(String title);
+    public void blockClick();            // cancels all top+bottom clicks/drags by default
+}
+````
+
+- `MenuContainer` — a rectangular region of slots (`setItem(x,y,item)`, `fill(item)`, `fillEmptySlots(item)`), with coordinate conversion helpers between "container-local" and "menu-global" slots.
+- `PagedMenuContainer extends MenuContainer` — a multi-page container (`nextPage()`, `previousPage()`, `setPage(int)`), plus bulk auto-layout helpers `fillWithItems(...)` and `fillPatternWithItems(items, pagesLimit, pattern...)` (text-art placement, space = disabled slot).
+- `MenuItem` — wraps an `ItemStack` with an optional click handler: `setClickAction(BiConsumer<InventoryClickEvent, MenuItem.ClickLocation>)`, or the simpler `Consumer<InventoryClickEvent>`/`Runnable` overloads.
+
+Clicks/drags/closes across every open menu are dispatched by an internal `MenuListener` singleton — it self-registers with Bukkit the first time any menu is opened, so you never interact with it directly.

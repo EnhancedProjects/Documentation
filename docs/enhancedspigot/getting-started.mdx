@@ -1,0 +1,288 @@
+---
+
+sidebar_position: 2
+
+---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Getting Started
+
+:::note
+EnhancedSpigot itself works with **Java 8+** (the build compiles down to Java 8 bytecode as part of its Gradle setup) and supports **Minecraft 1.8+**. Some functionality requires newer versions though — the Gradle plugin needs a reasonably modern Gradle/JDK to *build* your plugin with, and version-specific Spigot/Paper features (item trims, attributes, new potion effects, etc.) are only available on the Minecraft versions that actually introduced them, gated automatically via `SemanticVersion` checks.
+:::
+
+## Adding EnhancedSpigot to your project
+
+:::note
+EnhancedSpigot isn't published on Maven Central yet. Every module (and the Gradle plugin's dependency resolution) is served from EnhancedProjects' own repository, `https://nexus.enhancedprojects.com/repository/maven-snapshots` — the Gradle plugin adds it automatically, but you need to add it yourself for [manual setup](#manual-setup-without-the-gradle-plugin).
+:::
+
+The recommended way to use EnhancedSpigot is the dedicated **Gradle plugin**, `com.enhancedprojects.enhancedspigot`. It automatically:
+
+- adds the required repositories (Maven Central, EnhancedSpigot's own Nexus repository, and — only when needed — AnvilGUI's and PlaceholderAPI's/Vault's repositories),
+- adds `implementation` dependencies for every module you enable,
+- applies the [Shadow](https://github.com/GradleUp/shadow) and [Lombok](https://github.com/freefair/gradle-plugins) plugins,
+- relocates EnhancedSpigot's package into your own plugin's package to avoid classpath conflicts with other plugins bundling the library,
+- excludes heavy transitive dependencies (ORMLite, HikariCP, PostgreSQL driver, EvalEx…) from the shaded jar when you'd rather declare them yourself in `plugin.yml`'s `libraries:` section.
+
+<Tabs>
+<TabItem value='gradle' label='Gradle (recommended)'>
+````gradle title="build.gradle"
+import com.enhancedprojects.EnhancedModule
+
+plugins {
+    id 'java'
+    id 'com.enhancedprojects.enhancedspigot' version '{GRADLE_PLUGIN_VERSION}'
+}
+
+group = 'com.example'
+version = '1.0.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    maven { url "https://repo.papermc.io/repository/maven-public/" }
+}
+
+dependencies {
+    compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
+}
+
+enhancedspigot {
+    // Package that the library gets relocated into inside your shaded jar.
+    // Defaults to "<group>.<project name lowercase>.lib" if not set.
+    relocationPath = project.group + "." + project.name.toLowerCase() + ".lib"
+
+    // Exclude ORMLite/HikariCP/Postgres/EvalEx/slf4j from the shaded jar
+    // (use plugin.yml's "libraries:" instead, see note below)
+    excludeDependencies = true
+
+    // Add PlaceholderAPI / VaultAPI as compileOnly dependencies + their repositories
+    importPapi = true
+    importVault = true
+
+    // Version of the EnhancedSpigot modules to use
+    modulesVersion = "{VERSION}"
+
+    enabledModules = [
+            EnhancedModule.Plugin,
+            EnhancedModule.Commons,
+            EnhancedModule.Utils,
+
+            EnhancedModule.Configs,
+            EnhancedModule.Locale,
+            EnhancedModule.Data,
+
+            EnhancedModule.Commands,
+            EnhancedModule.Menus,
+            EnhancedModule.Items,
+    ]
+}
+````
+</TabItem>
+</Tabs>
+
+:::tip
+`enhancedSpigotLibraries` is a Gradle task (added automatically) that prints the external libraries needed by the modules you enabled (e.g. ORMLite, HikariCP) — handy for filling in `plugin.yml`'s `libraries:` section when `excludeDependencies = true`.
+:::
+
+:::note
+If you need to pin a single module to a different version than the rest (e.g. to pick up a hotfix), use `overrideVersions`:
+````gradle
+enhancedspigot {
+    modulesVersion = "3.0.0"
+    overrideVersions = [(EnhancedModule.Data): "3.0.1"]
+}
+````
+:::
+
+### Manual setup (without the Gradle plugin)
+
+You can also depend on individual modules directly, e.g. from Maven, or if you want full control over shading/relocation yourself. Since the library isn't on Maven Central yet, you need to add EnhancedProjects' Nexus repository yourself.
+
+<Tabs>
+<TabItem value='gradle' label='Gradle'>
+````gradle title="build.gradle"
+repositories {
+  mavenCentral()
+  maven { url "https://nexus.enhancedprojects.com/repository/maven-snapshots" }
+}
+
+dependencies {
+  implementation 'com.enhancedprojects:EnhancedSpigot-Plugin:{VERSION}'
+  implementation 'com.enhancedprojects:EnhancedSpigot-Commons:{VERSION}'
+  implementation 'com.enhancedprojects:EnhancedSpigot-Utils:{VERSION}'
+  implementation 'com.enhancedprojects:EnhancedSpigot-Configs:{VERSION}'
+  implementation 'com.enhancedprojects:EnhancedSpigot-Locale:{VERSION}'
+  implementation 'com.enhancedprojects:EnhancedSpigot-Data:{VERSION}'
+  implementation 'com.enhancedprojects:EnhancedSpigot-Commands:{VERSION}'
+  implementation 'com.enhancedprojects:EnhancedSpigot-Menus:{VERSION}'
+  implementation 'com.enhancedprojects:EnhancedSpigot-Items:{VERSION}'
+}
+````
+</TabItem>
+
+<TabItem value='maven' label='Maven'>
+````xml title="pom.xml"
+<repositories>
+  <repository>
+    <id>enhancedprojects-nexus</id>
+    <url>https://nexus.enhancedprojects.com/repository/maven-snapshots</url>
+  </repository>
+</repositories>
+
+<dependency>
+  <groupId>com.enhancedprojects</groupId>
+  <artifactId>EnhancedSpigot-Plugin</artifactId>
+  <version>{VERSION}</version>
+</dependency>
+<!-- ...and any other module you need -->
+````
+</TabItem>
+</Tabs>
+
+:::note
+Each module is independent — you only need `implementation project` on the modules whose classes you actually reference. The **Plugin** module only `compileOnly`-depends on Commands/Configs/Data/Locale/Items, so a module missing at runtime only breaks the `EnhancedPlugin.enableXxx()`/`useXxx()` call for that specific feature, not the whole plugin.
+:::
+
+## Project Template
+
+To start developing your plugin, extend `EnhancedPlugin` instead of Bukkit's `JavaPlugin`.
+
+````java
+public final class ExamplePlugin extends EnhancedPlugin {
+    @Override
+    public void load() {
+        // Register configs, locale, database, commands, items... (see following pages)
+    }
+
+    @Override
+    public void postLoad() {
+        // Runs one tick after load() — use this for logic that depends on
+        // other plugins/services being fully initialized
+    }
+
+    @Override
+    protected void reloadImpl() {
+        // Your own reload logic (configs/locale are reloaded automatically)
+    }
+
+    @Override
+    public void unload() {
+        // Your own teardown logic, runs before the dependency container is closed
+    }
+
+    @Override
+    protected List<String> requiredPlugins() {
+        // The plugin self-disables if any of these aren't enabled
+        return List.of();
+    }
+}
+````
+
+:::note
+`onEnable()` and `onDisable()` are declared `final` on `EnhancedPlugin` — you cannot override them. All lifecycle logic goes through `load()`, `postLoad()`, `unload()` and `reloadImpl()` instead.
+:::
+
+## The `EnhancedPlugin` base class
+
+`EnhancedPlugin` wires the Bukkit plugin lifecycle to a [`DependencyProvider`](dependency-injection.mdx), available on every subclass as `this.dependencyProvider` (or via the static `EnhancedPlugin.providerFromJavaPlugin(javaPlugin)` when you only have a `JavaPlugin` reference).
+
+### Lifecycle
+
+1. `onEnable()` creates the `DependencyProvider` and self-registers the plugin instance under `this.getClass()`, `EnhancedPlugin.class` and `JavaPlugin.class`.
+2. It checks `requiredPlugins()` — if any listed plugin isn't enabled, it logs an error and disables itself **before** `load()` runs.
+3. `load()` runs synchronously — this is where you register configs, locale, database, commands, items, listeners, etc.
+4. `postLoad()` runs **one tick later**, once other plugins have finished their own `onEnable()`.
+5. On `onDisable()`, `unload()` runs first, then the dependency container is closed (`IClosable.close()` is called, in `closeOrder()`, on every registered dependency that implements it — e.g. database connections are cleanly closed here).
+
+Calling `reload()` on your plugin instance reloads every registered dependency that implements `IReloadable` (configs, locale…), then calls your `reloadImpl()`, then refreshes leaderboards if any are registered.
+
+### Enabling optional modules
+
+Each module is opted into individually from `load()`, via a protected `enableXxx()`/`useXxx()` helper. Every helper registers the resulting controller/service into the `DependencyProvider` and returns it, so you can chain further setup or store it in a field.
+
+| Method | Requires module | Returns |
+|---|---|---|
+| `useConfiguration(EnhancedConfig config)` | Configs | the same config instance, started |
+| `useLocale(EnhancedLocale locale)` | Locale | the same locale instance, started |
+| `enableCommands(CommandLocale locale)` | Commands | `CommandController` — call `.registerCommands(packageName)` on it |
+| `enableDatabase(DatabaseOptions options)` | Data | `DatabaseController` — call `.registerEntities(packageName)` on it |
+| `enableMigrations(int currentVersion, Map<Integer, BiConsumer<JavaPlugin, DatabaseController>> migrations)` | Data | `MigrationController` |
+| `enableCustomItems()` | Items | `ItemController` — call `.registerItems(packageName)` on it |
+| `enableRecipes()` | Items | `RecipeController` — call `.registerRecipes(packageName)` on it |
+| `enableLeaderboards(EnhancedTime refreshRate)` | Utils | `LeaderboardController`, pre-populated from `leaderboards()` |
+| `registerListeners(String listenerPackage)` | Utils | — (registers every `EnhancedListener` found in the package) |
+| `useBStats(int serviceId)` | *(optional bStats dependency)* | `Metrics` |
+| `useUpdater(IUpdater updater)` | Utils | — (logs a warning if an update is available) |
+| `showDebug()` | — | — (promotes `FINE` logs to visible `INFO`-level debug logs) |
+
+_A representative `load()` implementation, combining several modules:_
+
+````java
+public final class ExamplePlugin extends EnhancedPlugin {
+    @Override
+    public void load() {
+        Settings settings = this.useConfiguration(new Settings(this));
+        Locale locale = this.useLocale(new Locale(this.dependencyProvider, settings.getLocale()));
+
+        VaultHook.in(this.dependencyProvider).economyHook(false);
+
+        DatabaseController databaseController = this.enableDatabase(settings.getDatabase());
+        this.enableMigrations(1, Map.of());
+        databaseController.registerEntities(UserEntity.class.getPackageName());
+        this.dependencyProvider.register(new UserDataService(this.dependencyProvider)).start();
+
+        this.enableCommands(locale.getCommand())
+                .registerCommands(ExampleCommand.class.getPackageName());
+    }
+
+    @Override
+    public void postLoad() {}
+
+    @Override
+    protected void reloadImpl() {}
+
+    @Override
+    public void unload() {}
+
+    @Override
+    protected List<String> requiredPlugins() {
+        return List.of("Vault");
+    }
+}
+````
+
+:::tip
+EnhancedSpigot's Plugin module does **not** scan the classpath automatically. Whether a module (Commands, Configs, Data, Locale, Items) ends up in your final jar is decided **at build time** by the `enabledModules` list in your Gradle config — calling `enableXxx()` for a module you didn't enable in Gradle will fail with `NoClassDefFoundError` at runtime.
+:::
+
+### Vault integration
+
+Vault's `Economy`, `Chat` and `Permission` services are hooked through the standalone `VaultHook` helper (not a method on `EnhancedPlugin` itself):
+
+````java
+VaultHook.in(this.dependencyProvider)
+    .economyHook(false)     // required — disables the plugin if Vault/an Economy provider isn't found
+    .chatHook(true)          // optional — silently skipped if not found
+    .permissionsHook(true);
+````
+
+Once hooked, fetch the service from anywhere via the dependency provider:
+
+````java
+Economy economy = this.dependencyProvider.provide(Economy.class);
+````
+
+### bStats metrics
+
+````java
+@Override
+public void load() {
+    this.useBStats(12345); // your bStats service ID
+}
+````
+
+### Debug logging
+
+Calling `showDebug()` promotes your plugin's `FINE`-level log records to visible `INFO` logs (prefixed `[YourPlugin-DEBUG]`) and switches your logger to `Level.FINE`. Calling it before `enableDatabase(...)` also switches on ORMLite's verbose query logging.
