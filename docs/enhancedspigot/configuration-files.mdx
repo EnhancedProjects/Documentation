@@ -1,0 +1,152 @@
+---
+
+sidebar_position: 4
+
+---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Configuration Files
+
+EnhancedSpigot manages `.yml` configuration files by mapping them onto plain Java classes ("POJOs"). You declare fields with normal Java default values, extend `EnhancedConfig`, and the library reflectively (de)serializes those fields to/from a `YamlConfiguration` file — including nested classes, `List`/`Map` fields, enums and several built-in Bukkit types.
+
+## Creating a config class
+
+Extend `EnhancedConfig` and declare your fields with their defaults directly as field initializers:
+
+````java title="Settings.java"
+@Getter @NoArgsConstructor
+public class Settings extends EnhancedConfig {
+    private String locale = "en";
+    private List<String> rewardCommands = List.of("give <player> diamond 1");
+    private boolean requirePermission = false;
+    private EnhancedTime leaderboardRefreshRate = new EnhancedTime("5m");
+    private DatabaseOptions database = new DatabaseOptions();
+
+    public Settings(JavaPlugin plugin) {
+        super(plugin, plugin.getDataFolder(), "config");
+    }
+}
+````
+
+:::note
+Every config class — and every nested/inner class used as a field type — **must have a no-arg constructor** (it can be `private`), because instances are created reflectively during (de)serialization.
+:::
+
+`EnhancedConfig` constructors:
+
+````java title="com.enhancedprojects.enhancedspigot.config.EnhancedConfig"
+protected EnhancedConfig(); // reflection only, don't call directly
+public EnhancedConfig(JavaPlugin plugin, String folderPath, String name);
+public EnhancedConfig(JavaPlugin plugin, File folder, String name);
+````
+
+`name` is the file name without extension — the class above writes to `<dataFolder>/config.yml`.
+
+## Registering a config
+
+There's no package-scanning "load all configs" helper — each config object is created and started individually, typically via `EnhancedPlugin.useConfiguration(...)`:
+
+````java title="load() in your EnhancedPlugin subclass"
+this.settings = this.useConfiguration(new Settings(this));
+````
+
+`useConfiguration` calls `config.start()` (creates the file & parent directories if missing, loads it, saves once if new, then reloads) and registers the instance into the dependency provider, so it's later reachable anywhere via `provider.provide(Settings.class)`.
+
+You can also manage the lifecycle yourself:
+
+````java
+Settings settings = new Settings(plugin);
+settings.start();   // create/load/reload
+settings.save();     // persist current field values back to disk
+settings.reload();   // reload from disk
+````
+
+Override `postLoad()` to run logic right after every (re)load (e.g. rebuilding caches from the freshly-loaded values):
+
+````java
+@Override
+protected void postLoad() {
+    this.trackedBlocksCache = new HashSet<>(this.trackedBlocks);
+}
+````
+
+## Annotations
+
+| Annotation | Placement | Purpose |
+|---|---|---|
+| `@Comment(String[] value)` | Type | On the **class**, becomes the file's header comment (joined by newlines). Placeholders declared via `getCommentPlaceholders()` are substituted into it. |
+| `@Comment(String[] value)` | Field | On a **field**, adds an inline comment above that key in the YAML. _(No-op on Minecraft below 1.19 — Bukkit didn't support `ConfigurationSection` comments before that.)_ |
+| `@DoNotRecover` | Field | Disables auto-recovery: normally, if a user deletes a key from the file, it gets silently regenerated from a fresh default on the next reload. This annotation opts a field out of that behavior. |
+| `@InjectKey` | Field | Used on a config class that's the **value type of a `Map<String, T>` field**. On deserialization, the map's key is injected into this field of the corresponding value instead of being read from YAML; the field is entirely skipped during (de)serialization. |
+| `@Serializer(Class<? extends ISerializer<?>>)` | Type, Field | Forces a specific `ISerializer` for a field (or for every field whose declared type is the annotated class), overriding the automatic registry lookup. |
+| `@Ignore` _(from Commons)_ | Field | The field is not persisted or read at all — use it for transient runtime state. |
+
+Field names are automatically converted from camelCase to kebab-case in the YAML (e.g. `requirePermission` → `require-permission`).
+
+:::note
+Only `Map<String, T>` fields are supported — map **keys** are always read/written as plain YAML mapping keys (i.e. strings). Only the **value** type `T` goes through the usual serializer lookup; there's no way to (de)serialize a non-`String` key type.
+:::
+
+_Example — a map keyed by an id, injected back into each entry via `@InjectKey`:_
+
+````java title="RewardConfig.java"
+public class RewardConfig extends EnhancedConfig {
+    @InjectKey
+    private String key; // populated automatically with the map key, never read from/written to YAML
+
+    private String displayName = "Reward";
+    private int requirement = 100;
+}
+````
+
+````java title="Settings.java"
+private Map<String, RewardConfig> rewards = new HashMap<>();
+````
+
+## Built-in serializers
+
+`ConfigSerializerRegistry.getInstance()` pre-registers `ISerializer` implementations for:
+
+- `World` — plain world name
+- `Location` — a section with `world`/`x`/`y`/`z`/`yaw`/`pitch`
+- `ItemStack` — a human-editable section (material, name, lore, enchants…) via `EnhancedItemBuilder.Serializer`
+- `EnhancedTime` — a duration string like `"5m"` or `"1h30m"`
+- `BigDecimal` — plain string
+- any `Enum` — its `.name()`
+- any other nested class — handled generically by the reflective `BaseSerializer` (the same logic that processes your top-level config class)
+
+Register a custom serializer for your own types:
+
+````java
+ConfigSerializerRegistry.getInstance().registerSerializer(new DateSerializer(), Date.class);
+````
+
+Need byte-exact `ItemStack` round-tripping (full NBT, at the cost of a non-human-readable Base64 value) instead of the default human-readable format? Opt a specific field in:
+
+````java
+@Serializer(ExactItemStackSerializer.class)
+private ItemStack rewardItem;
+````
+
+## `LocationAdapter`
+
+If you'd rather work with a plain POJO than Bukkit's `Location` directly (e.g. to get Lombok getters/setters), use `LocationAdapter` (`com.enhancedprojects.enhancedspigot.config.serializer.adapter.LocationAdapter`):
+
+````java
+private LocationAdapter spawn = new LocationAdapter(world, x, y, z); // yaw/pitch default to 0
+
+// convert to/from a real Bukkit Location when needed:
+Location bukkitLocation = spawn.asBukkitLocation();
+LocationAdapter adapter = LocationAdapter.fromBukkit(bukkitLocation);
+````
+
+:::tip
+`@Comment` on the class level supports placeholders substituted via an overridable method:
+````java
+@Override
+protected Map<String, String> getCommentPlaceholders() {
+    return Map.of("version", this.plugin.getDescription().getVersion());
+}
+````
+:::

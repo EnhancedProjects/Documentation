@@ -1,0 +1,192 @@
+---
+
+sidebar_position: 6
+
+---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Commands
+
+The Commands module lets you declare an entire command tree — including subcommands, nested subcommand groups, typed arguments, permissions and tab completion — as plain Java methods on a class extending `EnhancedCommand`. It also auto-generates a `commands.yml` letting server admins override descriptions/aliases/permissions without recompiling.
+
+## Creating a command
+
+````java title="ExampleCommand.java"
+public class ExampleCommand extends EnhancedCommand {
+    private final Settings settings;
+
+    public ExampleCommand(IDependencyProvider provider, CommandLocale locale, String groupPath) {
+        super(provider, locale, groupPath);
+        this.settings = provider.provide(Settings.class);
+    }
+
+    @MainCommand
+    @Description("Check your balance")
+    public void balance(Player player, Settings.GroupData group) {
+        // "/example <group>"
+    }
+
+    @Description("Check someone else's balance")
+    public void check(CommandSender sender, OfflinePlayer target, Settings.GroupData group) {
+        // "/example check <target> <group>"
+    }
+}
+````
+
+**The command's name** is derived from the class name (lower-cased, `Command` suffix stripped), e.g. `ExampleCommand` → `/example`, or overridden with `@Name`.
+
+**Subcommands** are just public methods:
+- The first parameter must be `Player` or `CommandSender` — a `Player`-first method is restricted to in-game senders only.
+- Every following parameter becomes a positional command argument, converted from the raw string via [argument converters](#argument-types--converters).
+- The subcommand's path segment is the method name (lower-cased), overridable with `@Name`, and its keyword is skipped entirely if the method carries `@MainCommand` — so `/example <args>` invokes the method directly instead of `/example balance <args>`.
+- Method overloading is supported: the framework tries every candidate whose argument count/types are convertible from the typed args, in declaration order.
+
+**Subcommand groups** are non-static **inner classes** — each nesting level adds one path segment:
+
+````java
+public class ExampleCommand extends EnhancedCommand {
+    // ...
+
+    public class Admin {                          // "/example admin ..."
+        public void reset(CommandSender sender, OfflinePlayer target) { ... }
+
+        public class Limit {                       // "/example admin limit ..."
+            public void set(CommandSender sender, OfflinePlayer target, int limit) { ... }
+        }
+    }
+}
+````
+
+:::tip
+Because subcommand groups are inner (non-static) classes, their methods have an implicit reference to the enclosing command instance — they can freely call fields/services declared on the outer class.
+:::
+
+## Annotations
+
+| Annotation | Placement | Purpose |
+|---|---|---|
+| `@MainCommand` | Method | The method is invoked with no subcommand keyword — `/cmd <args>` instead of `/cmd methodName <args>`. |
+| `@Name(String)` | Type, Method, Parameter | Overrides the auto-derived name of the command, subcommand/group, or argument. |
+| `@Description(String)` | Type, Method | Shown in `/cmd help` and written into `commands.yml`. |
+| `@Aliases(String...)` | Type | Extra command aliases. |
+| `@Permission(String)` | Type, Method | Adds an extra required permission node (class-level = whole command, method-level = one subcommand). |
+| `@WithoutPermission` | Type, Method | Disables the automatic permission check for the whole command or one subcommand. |
+| `@Hidden` | Method | Hides the subcommand from tab-completion and `/cmd help` (it's still executable). |
+| `@Ignore` | Type, Method | Excludes a method/inner class from being scanned as a subcommand/group. |
+| `@LongString` | Parameter | Marks the last `String` parameter as "endless" — joins every remaining raw token with spaces (e.g. for a reason/message argument). |
+| `@Converter(Class<? extends IStringConverter<?>>)` | Parameter | Overrides the default converter for this argument. |
+| `@Filter(orFilters, andFilters)` | Parameter | Attaches validation to a converted argument — see below. |
+
+## Argument types & converters
+
+Arguments are converted from raw strings via `IStringConverter<T>` (from [Commons](dependency-injection.mdx)), looked up in `StringConverterRegistry` by the parameter's declared type. Built in: all Java primitives/wrappers, `String`, `Player`, `OfflinePlayer`, `World`, any `Enum`, and `EnhancedTime`.
+
+Register a custom type once, globally:
+
+````java title="GroupConverter.java"
+public class GroupConverter implements IStringConverter<Settings.GroupData> {
+    @Override
+    public Settings.GroupData fromString(String string, JavaPlugin plugin) {
+        return EnhancedPlugin.providerFromJavaPlugin(plugin).provide(Settings.class).getGroups().get(string);
+    }
+
+    @Override
+    public boolean canConvert(String string, JavaPlugin plugin) {
+        return fromString(string, plugin) != null;
+    }
+
+    @Override
+    public String asString(Settings.GroupData object, JavaPlugin plugin) { ... }
+
+    @Override
+    public List<String> complete(String arg, CommandSender sender, JavaPlugin plugin) {
+        return List.copyOf(EnhancedPlugin.providerFromJavaPlugin(plugin).provide(Settings.class).getGroups().keySet());
+    }
+}
+````
+
+````java title="load() in your EnhancedPlugin subclass"
+StringConverterRegistry.getInstance().registerConverters(new GroupConverter());
+````
+
+Or override the converter for a single parameter with `@Converter`, without registering it globally:
+
+````java
+public void admin(Player player, @Converter(RegionConverter.class) String region) { ... }
+````
+
+## Filters
+
+`@Filter` attaches one or more `IFilter<T>` validations to an already-converted argument (or the sender). `andFilters` must **all** pass; `orFilters` needs **at least one** to pass. A failing filter aborts execution and sends its `notPassMessage()` to the sender.
+
+````java title="TrackedMaterialFilter.java"
+public class TrackedMaterialFilter implements IFilter<Material> {
+    @Override
+    public boolean filter(Material obj, JavaPlugin plugin, CommandSender source) {
+        return EnhancedPlugin.providerFromJavaPlugin(plugin).provide(Settings.class).getTrackedBlocks().contains(obj);
+    }
+
+    @Override
+    public List<String> notPassMessage(Material obj, JavaPlugin plugin, CommandSender source) {
+        return EnhancedPlugin.providerFromJavaPlugin(plugin).provide(Locale.class).getBlockNotTracked().asStrings();
+    }
+
+    @Override
+    public int weight() { return 0; }
+}
+````
+
+````java
+public void top(CommandSender sender, @Filter(andFilters = TrackedMaterialFilter.class) Material material, int players) { ... }
+````
+
+## Permissions
+
+Unless `@WithoutPermission` is present, every (sub)command automatically gets a hierarchy of permission nodes, and the sender passes if they hold **any** of them:
+
+- the exact path: `command.<groupPath>.<cmdName>.<subcommand.path>`
+- a `.*` wildcard at every intermediate depth: `command.<groupPath>.<cmdName>.*`, `command.<groupPath>.*`
+- the global wildcard: `command.*`
+- plus any custom node declared via `@Permission`
+
+## Auto-generated `commands.yml`
+
+Every registered command writes (and then reads back as an override) its metadata into `<dataFolder>/commands.yml`:
+
+````yaml title="commands.yml"
+example:
+  command: example
+  description: Example command
+  aliases: []
+  variants:
+    balance:
+      description: Check your currency
+      permissions: [command.example.balance]
+      onlyPlayer: true
+      hidden: false
+    check:
+      description: Check someone else's currency
+      permissions: [command.example.check]
+      onlyPlayer: false
+      hidden: false
+````
+
+Server admins can freely edit descriptions, aliases and permission nodes here — your annotations only supply the **initial** defaults.
+
+## Help & tab completion
+
+If the typed arguments don't match any registered subcommand path, `EnhancedCommand` automatically shows a paginated help listing (5 entries per page by default, override the protected `commandsPerHelpPage` field to change it), filtered to subcommands the sender has permission for and can execute (respecting `@Hidden` and player/console restrictions). Tab completion walks the same subcommand tree and delegates the final argument to its converter's `complete(...)`, filtered further by any `@Filter`.
+
+## Registering commands
+
+````java title="load() in your EnhancedPlugin subclass"
+this.enableCommands(locale.getCommand())
+        .registerCommands(ExampleCommand.class.getPackageName());
+````
+
+`enableCommands(CommandLocale)` builds a `CommandController`, ensures `commands.yml` exists, and registers it into the dependency provider. `registerCommands(String packageName)` then scans that package (inside your plugin's own jar) for every `EnhancedCommand` subclass, instantiates it, and injects it directly into Bukkit's command map — no `plugin.yml` `commands:` section required.
+
+:::note
+`CommandLocale` (holding the built-in "no permission" / "player only" / help-pagination messages) comes from your own `EnhancedLocale` subclass, typically via a nested field: `private CommandLocale command = new CommandLocale();` — see [Locale](locale.mdx).
+:::

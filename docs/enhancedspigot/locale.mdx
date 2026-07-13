@@ -1,0 +1,126 @@
+---
+
+sidebar_position: 5
+
+---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Locale
+
+The Locale module applies the same POJO-mapping idea as [Configuration Files](configuration-files.mdx), but each field represents a **translatable, formattable message** instead of a plain value. Messages are written in [MiniMessage](https://docs.advntr.dev/minimessage/index.html) (with legacy `&`-color-code support too) and can be sent as chat, action bar or title, with placeholder substitution and optional [PlaceholderAPI](https://www.spigotmc.org/resources/placeholderapi.6245/) expansion.
+
+## Creating a locale class
+
+Extend `EnhancedLocale` and declare one field per message, typed `LocaleObject`, with its default text supplied via `@LocaleDefault`:
+
+````java title="Locale.java"
+@Getter
+public class Locale extends EnhancedLocale {
+
+    @LocaleDefault(def = "<gradient:aqua:white>ExamplePlugin</gradient> <white>• ")
+    private LocaleObject prefix;
+
+    @WithPrefix
+    @LocaleDefault(def = "<gray>You don't meet the requirements")
+    private LocaleObject requirementsNotMet;
+
+    @WithPrefix
+    @LocaleDefault(def = "<gray>You must wait <dark_red><time> <gray>before entering again")
+    private LocaleObject cooldown;
+
+    @LocaleDefault(def = {
+        "<gray>Your score: <aqua><value> <gray>(<aqua><position><gray>)",
+        "<gray>Next refresh in <aqua><refresh>"
+    })
+    private LocaleObject leaderboardFooter; // multi-line message
+
+    private CommandLocale command = new CommandLocale(); // nested locale sub-object
+
+    public Locale(DependencyProvider provider, String locale) {
+        super(provider, locale);
+    }
+
+    @Override
+    public List<String> supportedLocales() {
+        return List.of("en");
+    }
+
+    @Override
+    public LocaleObject getPrefix() {
+        return this.prefix;
+    }
+}
+````
+
+`EnhancedLocale` requires two abstract methods:
+
+- `List<String> supportedLocales()` — every locale code that should get its own file created on disk (`<dataFolder>/locales/<code>.yml`). Only the "active" one (passed to the constructor) is fully loaded; the others are pre-created so translations can be filled in ahead of time.
+- `LocaleObject getPrefix()` — the message used wherever `@WithPrefix` is applied.
+
+## Registering a locale
+
+````java title="load() in your EnhancedPlugin subclass"
+this.locale = this.useLocale(new Locale(this.dependencyProvider, settings.getLocale()));
+````
+
+The idiomatic pattern is to store the active language code as a plain string field on your `Settings` config (`private String locale = "en";`), so server admins pick the language from `config.yml`.
+
+## Annotations
+
+| Annotation | Placement | Purpose |
+|---|---|---|
+| `@LocaleDefault(language, def)` | Field | Declares the default MiniMessage text for a `LocaleObject` field. `def` is a `String[]` — multiple entries render as a multi-line message. `@Repeatable`, so stack several with different `language()` values when `supportedLocales()` has more than one entry; leave `language` empty for single-locale plugins. |
+| `@WithPrefix` | Field | Prepends `getPrefix()`'s message to the **first line** whenever this field is rendered/sent. |
+| `@InjectBridge` | Field (type `IPlatformBridge`) | Injects the live platform bridge instance instead of reading it from YAML. |
+| `@Ignore` _(from Commons)_ | Field | Skipped entirely by the locale (de)serializer. |
+
+## Sending messages
+
+Every message field is a `LocaleObject`, with methods to render or send it. All of them accept Adventure `TagResolver` placeholders (typically `Placeholder.unparsed(name, value)` or `Placeholder.component(name, component)`):
+
+````java title="com.enhancedprojects.enhancedspigot.locale.LocaleObject"
+void to(CommandSender sender, TagResolver... placeholders);
+void to(CommandSender sender, SendType type, TagResolver... placeholders);   // CHAT / ACTIONBAR / TITLE
+void toMultiple(List<Player> players, TagResolver... placeholders);
+void toAllowed(String permission, TagResolver... placeholders);              // only to holders of a permission
+void toAll(TagResolver... placeholders);                                    // broadcast to everyone online
+
+Component asComponent(TagResolver... placeholders);
+List<Component> asComponents(TagResolver... placeholders);
+String asString(TagResolver... placeholders);
+List<String> asStrings(TagResolver... placeholders);
+````
+
+_Sending a message to a player, with a placeholder:_
+
+````java
+this.locale.getMinPrice().to(player,
+        Placeholder.unparsed("price", NumberUtil.showNumber(minPrice)));
+````
+
+_Broadcasting an event to every online player:_
+
+````java
+this.locale.getSomeEvent().toAll(
+        Placeholder.unparsed("item", ItemUtil.getItemName(item)),
+        Placeholder.unparsed("player", PlayerUtil.getFixedName(playerUuid, "-")));
+````
+
+`SendType.TITLE` uses the message's first two lines as the title/subtitle. `asStrings()`/`asString()` return legacy `§`-formatted plain strings — handy for GUI item names/lore or scoreboard lines.
+
+:::tip
+Both legacy `&`-color codes and MiniMessage tags (`<gray>`, `<gradient:...>`, your own placeholder tags) are supported in the same string — they're normalized internally before rendering.
+:::
+
+## PlaceholderAPI
+
+If PlaceholderAPI is installed, call `addPAPI(player)` on a `LocaleObject` to expand its placeholders in place before sending, or use `ColorUtil.modifyItem(itemStack, player, placeholders...)` to rewrite an item's name/lore with PAPI placeholders applied.
+
+## Platform bridges
+
+Message delivery is abstracted behind `IPlatformBridge` (`sendMessage`/`sendActionBar`/`sendTitle`, plus permission-restricted and broadcast variants). EnhancedSpigot currently always uses `SpigotBridge`, which wraps Kyori's `BukkitAudiences` for cross-version compatibility.
+
+:::note
+A native `PaperBridge` (using Paper's built-in Adventure support directly) exists in the source but isn't auto-selected yet in this version — `SpigotBridge` is used regardless of whether you're running Paper.
+:::

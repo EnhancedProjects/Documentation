@@ -1,8 +1,36 @@
+---
+
+sidebar_position: 1
+
+---
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
 # Introduction
 
+**EnhancedSpigot** is an **advanced** library that **enhances** the [**Spigot/Paper API**](https://www.spigotmc.org/wiki/spigot-plugin-development/) for creating powerful **Minecraft plugins**. It **simplifies** development with built-in tools for a **dependency injection** container, an advanced **commands** system, POJO-based **configuration** & **locale** management, a **database/cache** layer built on ORMLite, config-driven **menus**, and **custom items/recipes**.
+
+With **intuitive** syntax and a **modular** design, EnhancedSpigot **reduces** boilerplate and lets you enable only the pieces you need. Whether you're building a **simple** utility plugin or a **complex** gameplay system, EnhancedSpigot makes Spigot/Paper plugin development in Java **effortless** and **efficient**.
+
 :::info
-Work in progress…
+This documentation covers **EnhancedSpigot 3.0** (group id `com.enhancedprojects`). Older plugins built against `dev.projectenhanced` group id are based on previous major versions of the library — some concepts changed between versions, so treat those older projects only as a secondary reference.
 :::
+
+## Modules
+
+EnhancedSpigot is split into independent Gradle modules, so a plugin only needs to pull in what it actually uses. All of them are wired together through a single [dependency injection container](dependency-injection.mdx) and bootstrapped from the [`EnhancedPlugin`](getting-started.mdx#the-enhancedplugin-base-class) base class.
+
+| Module | Artifact | Description |
+|---|---|---|
+| **Commons** | `EnhancedSpigot-Commons` | Core contracts: the dependency injection interface, `Component`/`Controller`/`Service` stereotypes, the string-converter & filter subsystems used by commands, and shared annotations. Always pulled in transitively. |
+| **Utils** | `EnhancedSpigot-Utils` | A large collection of small utilities: the `DependencyProvider` implementation, `EnhancedItemBuilder`, `SchedulerUtil` (Folia-safe scheduling), `EnhancedTime`/`EnhancedTimer`, leaderboards, PDC helpers, HTTP client, update checkers and more. |
+| **Configs** | `EnhancedSpigot-Configs` | POJO-based YAML configuration management (`EnhancedConfig`). |
+| **Locale** | `EnhancedSpigot-Locale` | POJO-based, MiniMessage-powered translations & message sending (`EnhancedLocale`). |
+| **Commands** | `EnhancedSpigot-Commands` | An advanced command framework with reflection-based subcommands, permissions, argument converters/filters and auto-generated `commands.yml`. |
+| **Data** | `EnhancedSpigot-Data` | Database management built on [ORMLite](https://ormlite.com/) (SQLite/MySQL/PostgreSQL), repositories and an in-memory cache layer. |
+| **Menus** | `EnhancedSpigot-Menus` | Config-driven, pageable GUI menus, including confirmation/count/anvil-input prompt menus. |
+| **Items** | `EnhancedSpigot-Items` | Custom item & recipe management. |
+| **Plugin** | `EnhancedSpigot-Plugin` | The `EnhancedPlugin` wrapper that ties every other module together, plus bStats and Vault integration. |
+| **Gradle Plugin** | `com.enhancedprojects.enhancedspigot` | A Gradle plugin that generates the correct dependencies, repositories, relocations and shading configuration for whichever modules you enable. |
+
+Continue to [**Getting Started**](getting-started.mdx) to set up a new plugin project.

@@ -1,0 +1,114 @@
+---
+
+sidebar_position: 10
+
+---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Items
+
+The Items module manages **custom items** (items that trigger plugin logic on use/click/drop/death/etc.) and **custom recipes**. Building the underlying `ItemStack` itself is done with `EnhancedItemBuilder` from the [Utils module](utilities.mdx#item-building--enhanceditembuilder).
+
+## Custom items
+
+Extend `EnhancedItem` and override the hooks you need — the base class registers itself as a Bukkit `Listener` and auto-wires each hook to the matching event, filtering by `isSimilar(ItemStack)` before delegating:
+
+````java title="MagicWandItem.java"
+public class MagicWandItem extends EnhancedItem {
+
+    public MagicWandItem(IDependencyProvider provider, String fullItemTag) {
+        super(provider, fullItemTag);
+    }
+
+    @Override
+    public ItemStack getItem() {
+        return EnhancedItemBuilder.of(Material.BLAZE_ROD)
+                .displayName("<green>Magic Wand")
+                .build();
+    }
+
+    @Override
+    public boolean isSimilar(ItemStack is) {
+        return ItemUtil.validateItem(is) && PDCUtil.hasData(is, plugin, "magic_wand_charges", Integer.class);
+    }
+
+    @Override
+    public void onUse(PlayerInteractEvent event) {
+        // custom item logic
+    }
+}
+````
+
+`getItem()` returns the item's canonical `ItemStack`. `isSimilar(ItemStack)` decides whether an arbitrary stack should be treated as an instance of this custom item — the default implementation does a shape/meta comparison against `getItem()`, but most real items override it to check a [persistent data](utilities.mdx#persistent-data--pdcutil) tag instead, so one definition can recognize many stacks that differ in dynamic lore/placeholders but share the identifying tag.
+
+Overridable hooks include `onUse`, `onClick`, `onDrop`, `onDeath`, `onBreak`, `onConsume`, `onHeld`, `onPickup`, `onDrag`, `onDamage`, `onRespawn` and `onSwap` — each receives the corresponding Bukkit event. `setBlockDroppingItem(true)`/`setBlockSwappingHand(true)` automatically cancel drop/hotbar-swap/offhand-swap events for matched stacks, and items lost on death are cached and restored to their original slot on respawn.
+
+### Lambda-based alternative
+
+If you don't want a dedicated class per item, use the builder:
+
+````java
+EnhancedItem.builder()
+        .onUseAction(event -> { ... })
+        .onClickAction((event, clickType) -> { ... })
+        .blockDroppingItem(true)
+        .build()
+        .register(provider, itemStack, "my_item");
+````
+
+## Registering items
+
+````java title="load() in your EnhancedPlugin subclass"
+this.enableCustomItems().registerItems(MagicWandItem.class.getPackageName());
+````
+
+`enableCustomItems()` creates and registers an `ItemController`. `registerItems(packageName)` scans the given package (inside your plugin's jar) for `EnhancedItem` subclasses exposing an `(IDependencyProvider, String)` or `(JavaPlugin, String)` constructor, derives a tag from the class name (`MagicWandItem` → `magic_wand`), instantiates and registers each one with Bukkit.
+
+````java
+ItemStack stack = itemController.getCustomItem("magic_wand");        // by tag
+ItemStack stack2 = itemController.getCustomItem(MagicWandItem.class); // by class
+itemController.unregisterItem("magic_wand");
+````
+
+## Custom recipes
+
+Extend `EnhancedRecipe`, supplying the Bukkit `Recipe` to register:
+
+````java title="MyRecipe.java"
+public class MyRecipe extends EnhancedRecipe {
+
+    public MyRecipe(NamespacedKey key, DependencyProvider provider) {
+        super(key, provider);
+    }
+
+    @Override
+    public Recipe recipe() {
+        ShapedRecipe recipe = new ShapedRecipe(recipeKey, resultItemStack);
+        recipe.shape("AAA", "ABA", "AAA");
+        recipe.setIngredient('A', Material.DIAMOND);
+        recipe.setIngredient('B', Material.EMERALD);
+        return recipe;
+    }
+
+    @Override
+    public boolean autoDiscover() {
+        return true; // discover the recipe for every player on join
+    }
+
+    @Override
+    public void onCraft(CraftItemEvent event) {
+        // custom craft-time logic
+    }
+}
+````
+
+`ShapedRecipe`, `ShapelessRecipe`, cooking recipes (furnace/smoker/blast furnace/campfire) and `StonecuttingRecipe` are all supported.
+
+## Registering recipes
+
+````java title="load() in your EnhancedPlugin subclass"
+this.enableRecipes().registerRecipes(MyRecipe.class.getPackageName());
+````
+
+`enableRecipes()` creates and registers a `RecipeController`. `registerRecipes(packageName)` scans the package for `EnhancedRecipe` subclasses, builds each one a `NamespacedKey` (`<plugin-name>:<class-name>`, lower-cased), and registers it with Bukkit — de-duplicating any pre-existing recipe under the same key.
